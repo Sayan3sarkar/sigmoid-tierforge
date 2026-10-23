@@ -3,7 +3,7 @@ from typing import Annotated
 from fastapi import Depends
 from sqlalchemy import update
 
-from api.models import Job
+from api.models import Job, JobStatus
 from api.repositories.base import BaseRepository
 from api.schemas.jobs import JobCreate, JobUpdate
 
@@ -33,6 +33,26 @@ class JobRepository(BaseRepository):
             .where(Job.id == job_id)
             .values(**changes.model_dump(exclude_unset=True))
         )
+
+    async def update_if_status(
+        self, job_id: int, expected: JobStatus, changes: JobUpdate
+    ) -> bool:
+        """Update one job, writing only the fields set on `changes`, if and only
+        if its status is still `expected`.
+
+        The check and the write are one UPDATE statement, so when two workers
+        both try the same change, exactly one succeeds. Does not commit.
+
+        Returns True if the job was updated; False, changing nothing, if no job
+        has `job_id` or its status isn't `expected`.
+        """
+        result = await self.session.execute(
+            update(Job)
+            .where(Job.id == job_id, Job.status == expected)
+            .values(**changes.model_dump(exclude_unset=True))
+            .returning(Job.id)
+        )
+        return result.scalar_one_or_none() is not None
 
 
 JobRepositoryDep = Annotated[JobRepository, Depends()]

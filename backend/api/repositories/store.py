@@ -3,7 +3,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends
-from sqlalchemy import insert
+from sqlalchemy import insert, select
 
 from api.models import Store
 from api.repositories.base import BaseRepository
@@ -25,6 +25,11 @@ class StoreRepository(BaseRepository):
             [{"upload_id": upload_id, **row.model_dump()} for row in rows],
         )
         return list(result)
+
+    async def get(self, id: int) -> Store | None:
+        """Return the store with primary key `id` (not the CSV's `store_id`),
+        or None if there is none. Read only."""
+        return await self.session.scalar(select(Store).where(Store.id == id))
 
 
 StoreRepositoryDep = Annotated[StoreRepository, Depends()]

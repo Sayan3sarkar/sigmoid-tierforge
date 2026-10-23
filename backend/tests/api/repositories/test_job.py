@@ -47,3 +47,36 @@ class TestJobRepositoryUpdate:
             await JobRepository(session).update(job_id, JobUpdate(error=None))
 
         assert (await get_job(job_id)).error is None
+
+
+class TestJobRepositoryUpdateIfStatus:
+    async def test_writes_the_changes_when_the_status_matches(self, job_id):
+        async with DBSession.context() as session:
+            updated = await JobRepository(session).update_if_status(
+                job_id, JobStatus.PENDING, JobUpdate(status=JobStatus.RUNNING)
+            )
+
+        assert updated is True
+        assert (await get_job(job_id)).status == JobStatus.RUNNING
+
+    async def test_changes_nothing_when_the_status_differs(self, job_id):
+        async with DBSession.context() as session:
+            updated = await JobRepository(session).update_if_status(
+                job_id, JobStatus.RUNNING, JobUpdate(status=JobStatus.COMPLETED)
+            )
+
+        assert updated is False
+        assert (await get_job(job_id)).status == JobStatus.PENDING
+
+    async def test_only_the_first_of_two_identical_changes_succeeds(self, job_id):
+        # Two workers finishing the same job: exactly one gets to do it.
+        changes = JobUpdate(status=JobStatus.COMPLETED)
+        async with DBSession.context() as session:
+            first = await JobRepository(session).update_if_status(
+                job_id, JobStatus.PENDING, changes
+            )
+            second = await JobRepository(session).update_if_status(
+                job_id, JobStatus.PENDING, changes
+            )
+
+        assert (first, second) == (True, False)

@@ -21,7 +21,11 @@ logger = getLogger(__name__)
 
 
 class EnrichmentJobService:
-    """Creates an enrichment job for an upload and queues one event per store."""
+    """Creates an enrichment job for an upload, queues one event per store, and
+    finishes the job once all its tasks are done.
+
+    The API uses it through FastAPI dependencies; the worker builds it itself.
+    """
 
     def __init__(
         self,
@@ -33,7 +37,7 @@ class EnrichmentJobService:
     ) -> None:
         self._jobs = jobs
         self._tasks = tasks
-        self._sqs = sqs
+        self._sqs_client = sqs
         self._session = session
         self._queue_url = config.sqs.enrichment_queue_url
         self._send_concurrency = config.sqs.send_concurrency
@@ -73,7 +77,7 @@ class EnrichmentJobService:
         ]
         started = perf_counter()
         try:
-            await self._sqs.send_messages(
+            await self._sqs_client.send_messages(
                 self._queue_url, events, concurrency=self._send_concurrency
             )
         except Exception as e:
@@ -101,6 +105,36 @@ class EnrichmentJobService:
             perf_counter() - started,
         )
         return JobStatus.RUNNING
+
+    async def finish_if_complete(self, job_id: int) -> JobStatus | None:
+        """If every task of a RUNNING job has finished, mark the job COMPLETED
+        (all tasks SUCCEEDED) or COMPLETED_WITH_FAILURES (some FAILED), and commit.
+
+        Called after each task finishes. Returns the job's new status, or None
+        if tasks are still unfinished, or the job isn't RUNNING (already
+        finished, or FAILED).
+
+        Safe when two workers finish the last tasks at the same time: each
+        commits its task before counting, so whichever counts last sees every
+        task finished, and the guarded update lets only one of them finish the
+        job.
+        """
+        counts = await self._tasks.count_by_status(job_id)
+        if counts.get(TaskStatus.PENDING, 0) or counts.get(TaskStatus.IN_PROGRESS, 0):
+            return None
+
+        status = (
+            JobStatus.COMPLETED_WITH_FAILURES
+            if counts.get(TaskStatus.FAILED, 0)
+            else JobStatus.COMPLETED
+        )
+        finished = await self._jobs.update_if_status(
+            job_id,
+            expected=JobStatus.RUNNING,
+            changes=JobUpdate(status=status, finished_at=datetime.now(UTC)),
+        )
+        await self._session.commit()
+        return status if finished else None
 
 
 EnrichmentJobServiceDep = Annotated[EnrichmentJobService, Depends()]

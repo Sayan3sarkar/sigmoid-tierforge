@@ -40,11 +40,16 @@ class TemporaryDatabase:
     def drop(self) -> None:
         run(self._execute(f'DROP DATABASE IF EXISTS "{self.name}" WITH (FORCE)'))
 
-    def migrate(self) -> None:
-        """Apply every Alembic migration, exactly as `poe db_upgrade` does."""
+    @staticmethod
+    def alembic_config() -> AlembicConfig:
+        """The project's Alembic config, leaving the test suite's logging alone."""
         alembic_config = AlembicConfig(str(ALEMBIC_INI))
         alembic_config.attributes["configure_logger"] = False
-        upgrade(alembic_config, "head")
+        return alembic_config
+
+    def migrate(self) -> None:
+        """Apply every Alembic migration, exactly as `poe db_upgrade` does."""
+        upgrade(self.alembic_config(), "head")
 
     def fetch_value(self, query: str, *args: Any) -> Any:
         """Run a read query against this database (for assertions in tests)."""

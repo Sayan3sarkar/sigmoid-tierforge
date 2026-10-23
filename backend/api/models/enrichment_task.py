@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger,
@@ -6,6 +7,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     Text,
     UniqueConstraint,
     func,
@@ -19,7 +21,7 @@ from api.models.enums import TaskStatus
 class EnrichmentTask(Base):
     """One store within one job: the unit of work the worker processes.
 
-    Phase 3 adds the enrichment results (footfall, revenue, size) as columns here.
+    Also holds the store's enrichment result once the call succeeds.
     """
 
     __tablename__ = "enrichment_tasks"
@@ -32,12 +34,18 @@ class EnrichmentTask(Base):
     status: Mapped[str] = mapped_column(Text, default=TaskStatus.PENDING)
     attempt_count: Mapped[int] = mapped_column(Integer, server_default="0")
     last_error: Mapped[str | None] = mapped_column(Text)
+    # Enrichment result, set when the task SUCCEEDED; null otherwise.
+    estimated_monthly_footfall: Mapped[int | None] = mapped_column(Integer)
+    estimated_monthly_revenue: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    store_size_sqft: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    # When the task reached SUCCEEDED or FAILED.
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
         # One task per store per job; also serves "all tasks of a job" lookups.

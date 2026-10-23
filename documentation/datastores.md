@@ -37,8 +37,12 @@ erDiagram
         text status
         integer attempt_count
         text last_error "nullable"
+        integer estimated_monthly_footfall "nullable"
+        numeric estimated_monthly_revenue "nullable, (12,2)"
+        integer store_size_sqft "nullable"
         timestamptz created_at
         timestamptz updated_at
+        timestamptz finished_at "nullable"
     }
 ```
 
@@ -78,7 +82,7 @@ One row per enrichment run, created by the upload.
 | `error` | `text` | null | | why the job failed |
 | `created_at` | `timestamptz` | not null | `now()` | |
 | `started_at` | `timestamptz` | null | | when every event was sent |
-| `finished_at` | `timestamptz` | null | | when the job ended |
+| `finished_at` | `timestamptz` | null | | when the job ended: it `failed`, or its last task finished |
 
 | Constraint / index | Definition |
 | --- | --- |
@@ -95,7 +99,7 @@ One row per enrichment run, created by the upload.
 
 ## `enrichment_tasks`
 
-One row per store in a job: the unit of work. One SQS event is sent per task.
+One row per store in a job: the unit of work. One SQS event is sent per task. It also holds the store's enrichment result once the call succeeds.
 
 | Column | Type | Null | Default | Notes |
 | --- | --- | --- | --- | --- |
@@ -105,8 +109,12 @@ One row per store in a job: the unit of work. One SQS event is sent per task.
 | `status` | `text` | not null | `pending` (app) | see below |
 | `attempt_count` | `integer` | not null | `0` | enrichment calls made |
 | `last_error` | `text` | null | | why the last call failed |
+| `estimated_monthly_footfall` | `integer` | null | | from the enrichment API; set when `succeeded` |
+| `estimated_monthly_revenue` | `numeric(12,2)` | null | | from the enrichment API; set when `succeeded` |
+| `store_size_sqft` | `integer` | null | | from the enrichment API; set when `succeeded` |
 | `created_at` | `timestamptz` | not null | `now()` | |
 | `updated_at` | `timestamptz` | not null | `now()` | set to `now()` on every update |
+| `finished_at` | `timestamptz` | null | | when the task became `succeeded` or `failed` |
 
 | Constraint / index | Definition |
 | --- | --- |
@@ -114,7 +122,7 @@ One row per store in a job: the unit of work. One SQS event is sent per task.
 | `fk_enrichment_tasks_job_id_jobs` | `FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE` |
 | `fk_enrichment_tasks_store_id_stores` | `FOREIGN KEY (store_id) REFERENCES stores(id)` |
 | `uq_enrichment_tasks_job_id_store_id` | `UNIQUE (job_id, store_id)`: one task per store per job; also serves "all tasks of a job" |
-| `ix_enrichment_tasks_job_id_status` | `INDEX (job_id, status)`: progress counts per job |
+| `ix_enrichment_tasks_job_id_status` | `INDEX (job_id, status)`: task counts per status of a job, used by the worker after each task to see whether the job is finished, and for progress |
 
 | `status` | Meaning |
 | --- | --- |
@@ -126,4 +134,5 @@ One row per store in a job: the unit of work. One SQS event is sent per task.
 ## Notes
 
 - **Statuses** are plain `TEXT`. The values come from the `StrEnum`s `JobStatus` and `TaskStatus` in `backend/api/models/enums.py`. The app sets the `pending` defaults; neither the app nor the database rejects other values.
+- **Enrichment results** live on the task rather than in a separate table: each task has at most one result, and scoring (phase 4) reads the metrics of a job's `succeeded` tasks. The three metric columns use the enrichment API's own field names. Revenue is `numeric(12,2)` (exact to the cent; `Decimal` in Python), not a float.
 - **Constraint and index names** follow the convention in `backend/api/models/base.py`: `pk_`, `uq_`, `fk_`, `ix_`.

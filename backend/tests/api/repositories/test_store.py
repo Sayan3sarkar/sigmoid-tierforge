@@ -23,3 +23,19 @@ class TestStoreRepositoryBulkCreate:
             ids = await StoreRepository(session).bulk_create(uuid4(), rows)
 
         assert await get_store_ids(ids) == [row.store_id for row in rows]
+
+
+class TestStoreRepositoryGet:
+    async def test_returns_the_store_by_primary_key(self, upload):
+        upload_id, store_ids = upload
+        async with DBSession.context() as session:
+            store = await StoreRepository(session).get(store_ids[1])
+
+        assert store.id == store_ids[1]
+        assert store.upload_id == upload_id
+        assert store.store_id == "ST000002"
+
+    async def test_returns_none_for_an_unknown_id(self, upload):
+        _, store_ids = upload
+        async with DBSession.context() as session:
+            assert await StoreRepository(session).get(max(store_ids) + 1) is None

@@ -46,6 +46,34 @@ class SQSSendError(RuntimeError):
     """SQS rejected one or more messages of a batch."""
 
 
+class EnrichmentCallError(RuntimeError):
+    """An enrichment API call didn't return usable metrics.
+
+    The message is the short reason saved on the failed task (`last_error`).
+    Raised in the worker; not an AppError, since it never reaches an API client.
+    """
+
+
+class EnrichmentRateLimitedError(EnrichmentCallError):
+    """The API answered 429: calls exceeded its rate limit."""
+
+
+class EnrichmentUpstreamError(EnrichmentCallError):
+    """The API answered with an error status other than 429, e.g. 500."""
+
+
+class EnrichmentTimeoutError(EnrichmentCallError):
+    """The call didn't complete within the timeout."""
+
+
+class EnrichmentConnectionError(EnrichmentCallError):
+    """The API couldn't be reached, or the connection broke mid-call."""
+
+
+class EnrichmentInvalidResponseError(EnrichmentCallError):
+    """The API answered 200, but the body isn't valid metrics for the store."""
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     # The decorator (unlike app.add_exception_handler) accepts a handler typed for
     # the specific exception, so `exc: AppError` type-checks without casts.

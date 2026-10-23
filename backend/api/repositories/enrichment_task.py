@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from typing import Annotated
 
 from fastapi import Depends
-from sqlalchemy import insert, select, update
+from sqlalchemy import func, insert, select, update
 
 from api.models import EnrichmentTask, Job, JobStatus, TaskStatus
 from api.repositories.base import BaseRepository
@@ -26,6 +26,25 @@ class EnrichmentTaskRepository(BaseRepository):
             [task.model_dump() for task in tasks],
         )
         return list(result)
+
+    async def get(self, task_id: int) -> EnrichmentTask | None:
+        """Return the task with `task_id`, or None if there is none. Read only."""
+        return await self.session.scalar(
+            select(EnrichmentTask).where(EnrichmentTask.id == task_id)
+        )
+
+    async def count_by_status(self, job_id: int) -> dict[TaskStatus, int]:
+        """Count the job's tasks per status, in one grouped query served by the
+        (job_id, status) index. Read only.
+
+        Statuses with no tasks are left out; a job with no tasks gives {}.
+        """
+        result = await self.session.execute(
+            select(EnrichmentTask.status, func.count())
+            .where(EnrichmentTask.job_id == job_id)
+            .group_by(EnrichmentTask.status)
+        )
+        return {TaskStatus(status): count for status, count in result}
 
     async def update_if_status(
         self,

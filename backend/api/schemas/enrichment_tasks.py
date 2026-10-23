@@ -1,6 +1,10 @@
+from datetime import datetime
+from decimal import Decimal
+
 from pydantic import BaseModel, ConfigDict
 
 from api.models.enums import TaskStatus
+from api.schemas.enrichment import EnrichRequest
 
 
 class EnrichmentTaskCreate(BaseModel):
@@ -22,3 +26,20 @@ class EnrichmentTaskUpdate(BaseModel):
     status: TaskStatus | None = None
     attempt_count: int | None = None
     last_error: str | None = None
+    estimated_monthly_footfall: int | None = None
+    estimated_monthly_revenue: Decimal | None = None
+    store_size_sqft: int | None = None
+    finished_at: datetime | None = None
+
+
+class ClaimedTask(BaseModel):
+    """A task the worker has claimed (IN_PROGRESS), with what it needs to enrich
+    the store and record the outcome."""
+
+    model_config = ConfigDict(frozen=True)
+
+    task_id: int
+    job_id: int
+    # Calls made before this one; the outcome is saved as attempt_count + 1.
+    attempt_count: int
+    request: EnrichRequest

@@ -6,8 +6,8 @@ TierForge's backend is built in small phases. Each phase ends with something you
 | --- | --- | --- | --- |
 | 0 | Scaffolding | Done (`6ba595d`) | `poe api`, `poe worker` and `poe test` run; `GET /api/health` returns 200 |
 | 1 | Store CSV upload | Done (`b6f2fdb`, `f180f90`) | Uploading `stores_5000.csv` saves 5,000 rows; a bad file returns 422 with reasons |
-| 2 | Upload starts an enrichment job | Built (not committed yet) | Uploading 5,000 stores creates a running job, 5,000 tasks and 5,000 SQS events; the worker claims every task |
-| 3 | Worker enrichment | Planned | Progress climbs to ~88% succeeded / ~12% failed; the job finishes |
+| 2 | Upload starts an enrichment job | Done (`89a6459`) | Uploading 5,000 stores creates a running job, 5,000 tasks and 5,000 SQS events; the worker claims every task |
+| 3 | Worker enrichment | Built (live run pending) | Progress climbs to ~88% succeeded / ~12% failed; the job finishes |
 | 4 | Scoring and tiering | Planned | Re-scoring with new settings changes the tier counts |
 | 5 | Dashboard reads | Planned | Failures, tier summary and a filterable store list |
 | 6 | Resilience (draft 2) | Later | Retries, backoff, reclaiming hung work, circuit breaker |
@@ -24,7 +24,7 @@ FastAPI app and worker in one Poetry project, with Postgres, Alembic, LocalStack
 - **Endpoint:** `POST /api/uploads`, a multipart CSV upload. It returns `201 {upload_id, row_count}`, or 422 or 413 with every problem listed.
 - **Rules:** the six required columns in any order and nothing else, no blank values, no duplicate `store_id`, UTF-8. All or nothing: any bad row rejects the whole file.
 
-## Phase 2: Upload starts an enrichment job
+## Phase 2: Upload starts an enrichment job (done)
 
 **Goal:** a successful upload automatically starts enrichment. It creates a job with one unit of work per store and puts one SQS event per store on the queue; the worker picks them up one by one. The worker does **not** call the enrichment API yet. Details: [architecture.md](architecture.md).
 
@@ -64,6 +64,21 @@ If sending fails, the job is marked `failed` with the reason and the upload retu
 - **Guarded update:** a task that's already `SUCCEEDED` or `FAILED` is never overwritten, so a duplicate SQS delivery is harmless.
 - **Job completion:** when the last task finishes, the job becomes `COMPLETED` or `COMPLETED_WITH_FAILURES`.
 - **Done when:** a 5,000-store job finishes in about 18–19 minutes with about 88% of tasks succeeded, and every failed task shows a reason.
+
+**Built:** details in [architecture.md](architecture.md#worker-enrichment).
+
+| Piece | Where |
+| --- | --- |
+| Result columns on `enrichment_tasks` (footfall, revenue, size, `finished_at`) | migration `b7783ebb251d` |
+| Settings: `ENRICHMENT_TIMEOUT_SECONDS` (10), `ENRICHMENT_RATE_PER_SECOND` (4.5), `ENRICHMENT_CONCURRENCY` (8) | `config/settings.py` |
+| Token-bucket rate limiter, capacity 1 (evenly spaced calls) | `worker/rate_limiter.py` |
+| Enrichment client: one `POST /enrich` per call; typed errors whose message is the saved reason | `api/dependencies/enrichment.py` |
+| Claim with store, record success / failure, finish the job once | `EnrichmentTaskService`, `EnrichmentJobService.finish_if_complete` |
+| One receiver plus 8 handler tasks sharing the limiter | `worker/worker.py` |
+
+The client uses `aiohttp`, already installed with `aiobotocore` and now declared as a runtime dependency. Its tests run against a local aiohttp test server.
+
+**Checked so far:** 127 tests pass. Three real calls to the simulator through the client returned parsed metrics. The live 5,000-store run is still to do.
 
 ## Phase 4: Scoring and tiering
 

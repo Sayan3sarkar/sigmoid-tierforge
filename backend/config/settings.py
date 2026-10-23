@@ -48,6 +48,12 @@ class SQSConfig(BaseSettingsConfig, env_prefix="sqs_"):
 
 class EnrichmentConfig(BaseSettingsConfig, env_prefix="enrichment_"):
     base_url: str = "http://localhost:8000"
+    # Whole call, from connecting to the last byte of the response.
+    timeout_seconds: float = Field(default=10.0, gt=0)
+    # The API allows 5 calls/s across all callers; stay below it.
+    rate_per_second: float = Field(default=4.5, gt=0)
+    # Calls in flight at once in one worker; the rate limit still caps calls/s.
+    concurrency: int = Field(default=8, ge=1)
 
 
 class HealthConfig(BaseSettingsConfig, env_prefix="health_"):
