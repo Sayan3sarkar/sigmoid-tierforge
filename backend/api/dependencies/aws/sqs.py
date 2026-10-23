@@ -1,4 +1,5 @@
-from collections.abc import AsyncIterator
+from asyncio import Semaphore, gather
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from logging import getLogger
 from typing import Annotated, TypeAlias
@@ -10,10 +11,12 @@ from pydantic import BaseModel, ConfigDict
 from types_aiobotocore_sqs.client import SQSClient as AioSQSClient
 from types_aiobotocore_sqs.type_defs import MessageTypeDef
 
-from api.exceptions import SQSQueueUnavailableError
+from api.exceptions import SQSQueueUnavailableError, SQSSendError
 from config import Config
 
 logger = getLogger(__name__)
+
+SQS_BATCH_SIZE = 10  # SendMessageBatch accepts at most 10 entries
 
 
 class ReceivedMessage(BaseModel):
@@ -103,6 +106,36 @@ class SQSClient:
             QueueUrl=queue_url, MessageBody=message.model_dump_json()
         )
         return response.get("MessageId", "")
+
+    async def send_messages(
+        self, queue_url: str, messages: Sequence[BaseModel], concurrency: int = 10
+    ) -> None:
+        """Send many messages with SendMessageBatch: 10 per call (the SQS maximum),
+        up to `concurrency` calls at a time. Raises SQSSendError if SQS rejects any.
+        """
+        batches = [
+            messages[start : start + SQS_BATCH_SIZE]
+            for start in range(0, len(messages), SQS_BATCH_SIZE)
+        ]
+        slots = Semaphore(concurrency)
+
+        async def send_batch(batch: Sequence[BaseModel]) -> None:
+            async with slots:
+                response = await self._client.send_message_batch(
+                    QueueUrl=queue_url,
+                    Entries=[
+                        {"Id": str(index), "MessageBody": message.model_dump_json()}
+                        for index, message in enumerate(batch)
+                    ],
+                )
+            if failed := response.get("Failed"):
+                reasons = sorted({entry.get("Message", "unknown") for entry in failed})
+                raise SQSSendError(
+                    f"SQS rejected {len(failed)} of {len(batch)} messages: "
+                    + "; ".join(reasons)
+                )
+
+        await gather(*(send_batch(batch) for batch in batches))
 
     async def receive_messages(
         self, queue_url: str, max_messages: int = 10, wait_time_seconds: int = 20

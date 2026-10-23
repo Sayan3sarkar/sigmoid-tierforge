@@ -4,15 +4,15 @@ Oct 22, 2026 · Sayan Sarkar
 
 ## In one page
 
-The user does four things, in order. Each one maps to one or two endpoints.
+The user does three things, in order; enrichment starts on its own after the upload. Each step maps to one or two endpoints.
 
 1. **Upload the CSV** — `POST /api/uploads`
     - Check the headers are exactly `store_id, store_name, address, city, state, country`; reject with a clear error if not.
-    - Save each row as a store. Nothing is enriched yet.
-2. **Start enrichment** — `POST /api/jobs`
-    - The API creates one job and one task per store in Postgres, then returns immediately.
-    - Only one job may run at a time.
-    - The **worker** (a separate process) picks up the tasks and calls the simulator for each store, within the 5 calls/second limit.
+    - Save each row as a store. The upload then **starts enrichment automatically** (step 2) and returns the `job_id`.
+2. **Enrichment (automatic, no endpoint)**
+    - The upload creates one job and one task per store in Postgres, commits, then sends one SQS event per task (`{version, timestamp, payload: {job_id, task_id}}`) and returns.
+    - Several jobs may run at once; the single worker serves them all, so they share its rate limit.
+    - The **worker** (a separate process) consumes the events one by one and calls the simulator for each store, within the 5 calls/second limit.
     - **Draft 1:** each store gets exactly one call. Any 429, 500, timeout or connection error marks that store `FAILED` with the reason. No retries.
     - **Draft 2:** retries 500s and timeouts a capped number of times with backoff, takes back work from calls that hang, ignores answers that arrive too late, and stops the whole job if everything is failing.
     - The worker does not create jobs; it only processes tasks.
@@ -26,7 +26,7 @@ The user does four things, in order. Each one maps to one or two endpoints.
     - `GET /api/jobs/{id}/summary`: Large / Medium / Small counts
     - `GET /api/jobs/{id}/stores?tier=`: store list with metrics, score and tier, filterable by tier
 
-Processes: the **API** (port 8001) handles steps 1, 3 and 4 and creates the job in step 2. The **worker** (no port) does the enrichment. Both share Postgres. In draft 1 the worker keeps calls under the limit with an in-process limiter (see [documentation/01-rate-limiting.md](documentation/01-rate-limiting.md)); a shared Redis limiter comes later, if we run more than one worker process.
+Processes: the **API** (port 8001) handles steps 1, 3 and 4, and in step 1 creates the job and sends its events to SQS. The **worker** (no port) consumes the events and does the enrichment. Both share Postgres. In draft 1 the worker keeps calls under the limit with an in-process limiter; a shared Redis limiter comes later, if we run more than one worker process. Design details: [documentation/architecture.md](documentation/architecture.md) and [documentation/datastores.md](documentation/datastores.md).
 
 ## The big picture
 
@@ -70,17 +70,19 @@ At 5 calls per second, 5,000 stores take at least \~17 minutes (\~18.5 at the 4.
 
 ## What you need to build
 
-The backend is one FastAPI service, organised as four parts that share a Postgres database. The enrichment workers run inside the service as background tasks.
+The backend is one codebase run as two processes, the FastAPI API and the SQS worker, sharing a Postgres database. The API hands work to the worker through an SQS queue.
 
 ```mermaid
 flowchart LR
     Client["Client<br/>UI or curl"] -- HTTP --> Upload
     subgraph Backend["TierForge backend · FastAPI on port 8001"]
-        Upload["Upload<br/>Validate CSV headers<br/>Save stores"]
+        Upload["Upload<br/>Validate CSV, save stores<br/>Create job + tasks, send events"]
         Dashboard["Dashboard APIs<br/>Progress, failures<br/>Tier counts, store list"]
         Scoring["Scoring<br/>Bars + weights to tier<br/>Never calls the API"]
         Engine["Job engine (worker process)<br/>~4.5/s limiter, 10 s timeout<br/>Retries in draft 2"]
     end
+    Upload -- "one event per store" --> Queue[["SQS queue<br/>tierforge-enrichment"]]
+    Queue -- "consumed one by one" --> Engine
     Engine -- "≤ 5/s" --> Simulator["Simulator (given, do not change)<br/>POST /enrich<br/>flaky, port 8000"]
     Upload <--> PG[("Postgres · localhost:5432 · Alembic<br/>stores · jobs · enrichment_tasks · store_scores")]
     Dashboard <--> PG
@@ -88,7 +90,7 @@ flowchart LR
     Engine <-- "task status + raw metrics" --> PG
 ```
 
-Upload, scoring and the dashboard APIs only touch Postgres. The job engine is the one part that calls the simulator, so its slowness and failures never reach scoring.
+Scoring and the dashboard APIs only touch Postgres; the upload also sends events to SQS. The worker is the one part that calls the simulator, so its slowness and failures never reach scoring.
 
 ### Your stack
 
@@ -100,20 +102,20 @@ Upload, scoring and the dashboard APIs only touch Postgres. The job engine is th
 
 ### The four parts
 
-1. **Upload.** Accept the CSV, check the headers, save each row as a store, and give the batch an ID.
-2. **Enrichment job engine.** Create one task per store. The worker claims tasks, calls the simulator through the rate limiter, and records the outcome on the task. Draft 1 makes one attempt per store; draft 2 adds the failure handling listed under Business rules.
+1. **Upload.** Accept the CSV, check the headers, save each row as a store, and give the batch an ID. Then create the enrichment job and one task per store, and send one SQS event per task.
+2. **Enrichment job engine (worker).** Consumes the events one by one. For each, it claims the task, calls the simulator through the rate limiter, and records the outcome on the task. Draft 1 makes one attempt per store; draft 2 adds the failure handling listed under Business rules.
 3. **Scoring.** A pure function plus one bulk DB write. It reads saved metrics, applies the user's bars, weights and tier thresholds, and stores a score and tier per store.
 4. **Read APIs for the dashboard.** Job progress, failure reasons, tier counts, and a store list you can filter by tier.
 
 ### Data model — four tables
 
-Two you already expected (`stores`, `jobs`), plus one for the per-store work and one for the computed scores. The raw metrics (slow to get) and the scores (cheap to recompute) live in different tables, so re-scoring can never touch enrichment data.
+Two you already expected (`stores`, `jobs`), plus one for the per-store work and one for the computed scores. The raw metrics (slow to get) and the scores (cheap to recompute) live in different tables, so re-scoring can never touch enrichment data. The exact current schema, with every index and constraint, is in [documentation/datastores.md](documentation/datastores.md).
 
 | Table | One row per | Columns | Written by |
 | --- | --- | --- | --- |
 | `stores` | row of an uploaded CSV | id, upload_id (UUID shared by all rows of one file), store_id, store_name, address, city, state, country, created_at. Unique on (upload_id, store_id). | Upload, once |
-| `jobs` | enrichment run | id, upload_id, status, total_stores, scoring_config (JSONB, latest settings), error, created_at, started_at, finished_at | API creates it; worker updates status; scoring saves its settings here |
-| `enrichment_tasks` | store within a job: the unit of work and its raw result | id, job_id, store_id (→ stores.id), status, attempt_count, last_error, footfall, revenue, size_sqft, enriched_at, updated_at. Unique on (job_id, store_id). | API creates them as `PENDING`; worker fills in the outcome |
+| `jobs` | enrichment run of one upload | id, upload_id, status, total_tasks, error, created_at, started_at, finished_at; scoring_config (JSONB, phase 4) | Upload creates it; upload and worker update status; scoring saves its settings here |
+| `enrichment_tasks` | store within a job: the unit of work and its raw result | id, job_id, store_id (→ stores.id), status, attempt_count, last_error, created_at, updated_at; footfall, revenue, size_sqft, enriched_at (phase 3). Unique on (job_id, store_id). | Upload creates them as `pending`; worker fills in the outcome |
 | `store_scores` | scored store in a job | job_id, task_id, score, tier, scored_at. Primary key (job_id, task_id). | Scoring: deleted and rewritten in one transaction on every run |
 
 What each one answers:
@@ -133,9 +135,9 @@ Dropped from the earlier eight-table draft:
 | `scoring_configs` | the `scoring_config` JSONB column on `jobs` (latest settings only) |
 
 **Statuses.**
-- Task: `PENDING → IN_PROGRESS → SUCCEEDED | FAILED`.
-- Job: `PENDING → RUNNING → COMPLETED | COMPLETED_WITH_FAILURES`. Draft 2 adds `FAILED` for the circuit breaker.
-- Store statuses as text with a CHECK constraint, so adding a value later is a simple migration.
+- Task: `pending → in_progress → succeeded | failed`.
+- Job: `pending → running → completed | completed_with_failures`, or `failed` if its events can't be sent. Draft 2 also uses `failed` for the circuit breaker.
+- Statuses are plain `TEXT` in Postgres; the code uses the `StrEnum`s `JobStatus` and `TaskStatus` for the values.
 
 **Room left for draft 2.** Retries need no new tables, only new columns added through one Alembic migration:
 - **Already there:** `attempt_count` (always 1 in draft 1) and `last_error`.
@@ -148,8 +150,7 @@ The brief does not fix any paths. This is a minimal set that covers Steps 1–4 
 
 | Step | Method + path | Does | Returns / notes |
 | --- | --- | --- | --- |
-| 1 | `POST /api/uploads` (multipart CSV) | Checks the headers, saves the stores | `upload_id`, `row_count`. Returns 422 with a clear message if a column is missing, extra or misspelled, or the file is empty or not a CSV. |
-| 2 | `POST /api/jobs` `{upload_id}` | Creates the job and one task per store, starts workers | `job_id`, right away. Returns 409 if a job is already running (one job at a time). |
+| 1–2 | `POST /api/uploads` (multipart CSV) | Checks the file, saves the stores, then creates the enrichment job and one task per store and sends one SQS event per task | `201 {upload_id, row_count, job_id, job_status}`. 422 for an invalid file (every problem listed), 413 if too large, 503 if the stores were saved but the events couldn't be sent (the job is marked `failed`). |
 | 2 | `GET /api/jobs/{id}` | Job progress | status, total / succeeded / failed / pending / in-progress counts, timestamps, terminal failure reason |
 | 2 | `GET /api/jobs/{id}/failures` | Why stores failed | store_id, name, attempts made, last error (draft 1: "500", "timeout"; draft 2: "500 after 5 attempts") |
 | 3 | `POST /api/jobs/{id}/scoring` | Applies bars, weights and tier thresholds to saved metrics. Never calls the API. | tier breakdown. Can run while enrichment is still going (it scores whatever has succeeded) or only after it finishes; pick one and document it. |
@@ -207,12 +208,12 @@ This is the core of the exercise, and it is built in two drafts.
 | **500 transient error** | Task `FAILED`, reason `500` | Retry with exponential backoff and jitter (e.g. 1 s, 2 s, 4 s …), up to a cap (e.g. 5 attempts). Then `FAILED` with the reason. |
 | **Call hangs (50 s)** | 10 s client timeout, then task `FAILED`, reason `timeout` | Same timeout; counts as a failed attempt and the task is put back for retry |
 | **Late answer from a call you gave up on** | Can't happen: the client abandons the connection when the timeout fires | Harmless: the guarded update (`WHERE status <> 'SUCCEEDED'`) ignores duplicates, so counts never double |
-| **Worker goes silent** (crash, stuck coroutine) | Tasks stay `IN_PROGRESS`; known limitation | Tasks are claimed with a lease (`lease_expires_at`) using `SELECT … FOR UPDATE SKIP LOCKED`. A reaper puts expired leases back to `PENDING`. |
+| **Worker goes silent** (crash, stuck coroutine) | Tasks stay `in_progress`; known limitation | Tasks are claimed with a lease (`lease_expires_at`) using `SELECT … FOR UPDATE SKIP LOCKED`. A reaper puts expired leases back to `pending`. |
 | **Run is broken across the board** (simulator down, everything failing) | Every task fails once and the job ends `COMPLETED_WITH_FAILURES`, so it can't loop | Job-level circuit breaker (e.g. N failures in a row) stops the run and marks the job `FAILED` with a clear reason |
 
-**Job states:** `PENDING → RUNNING → COMPLETED` (everything succeeded) or `COMPLETED_WITH_FAILURES` (some stores failed). Draft 2 adds `FAILED` (circuit breaker tripped).
+**Job states:** `pending → running → completed` (everything succeeded) or `completed_with_failures` (some stores failed); `failed` if the job's events couldn't be sent. Draft 2 also uses `failed` when the circuit breaker trips.
 
-**Task states:** `PENDING → IN_PROGRESS → SUCCEEDED | FAILED`. In draft 2, a failed attempt under the cap goes back to `PENDING` with a later `next_attempt_at`.
+**Task states:** `pending → in_progress → succeeded | failed`. In draft 2, a failed attempt under the cap goes back to `pending` with a later `next_attempt_at`.
 
 ## Scope, tests and deliverables
 
@@ -225,7 +226,7 @@ The core is Steps 1–4, end to end, with one job at a time. Don't start the bon
 | **Bonus** | Several jobs running at once while still sharing one 5/s limit. Resuming after a restart: kill the server mid-job, and on startup it carries on without redoing finished stores. |
 | **Out** | Auth, Docker, deployment, building your own enrichment API |
 
-Resuming after a restart comes almost free if task state and leases live in Postgres rather than in memory. On startup, the reaper hands back expired leases and the workers pick up `PENDING` tasks. Worth doing even though it is a bonus.
+Resuming after a restart comes almost free if task state and leases live in Postgres rather than in memory. On startup, the reaper hands back expired leases and the workers pick up `pending` tasks. Worth doing even though it is a bonus.
 
 **Tests** (optional but a strong signal), runnable with one command such as `pytest`:
 

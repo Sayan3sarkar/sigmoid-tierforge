@@ -29,11 +29,21 @@ class UploadTooLargeError(AppError):
     status_code = 413
 
 
+class EnrichmentDispatchError(AppError):
+    """The stores were saved but their enrichment events could not be sent."""
+
+    status_code = 503
+
+
 class SQSQueueUnavailableError(RuntimeError):
     """The configured SQS queue can't be reached (wrong URL, missing queue, no access).
 
     Raised at worker startup; not an AppError, since it never reaches an API client.
     """
+
+
+class SQSSendError(RuntimeError):
+    """SQS rejected one or more messages of a batch."""
 
 
 def register_exception_handlers(app: FastAPI) -> None:

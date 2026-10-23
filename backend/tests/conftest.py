@@ -48,7 +48,7 @@ def sqs_client(mocker):
 
 
 @fixture
-def app(test_database):
+def app(sqs_client, test_database):
     application = create_app()
     yield application
     application.dependency_overrides.clear()

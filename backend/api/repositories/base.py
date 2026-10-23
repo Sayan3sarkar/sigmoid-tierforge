@@ -8,6 +8,9 @@ class BaseRepository:
     AsyncSession per request from the shared engine created once at startup.
     Subclasses are used as dependencies directly, e.g.
     `StoreRepositoryDep = Annotated[StoreRepository, Depends()]`.
+
+    Repositories never commit. They add, flush and update within the caller's
+    transaction; the service that calls them decides when to commit.
     """
 
     def __init__(self, session: DbSessionDep) -> None:

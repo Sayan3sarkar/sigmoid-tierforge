@@ -8,7 +8,11 @@ from api.repositories.base import BaseRepository
 
 class HealthRepository(BaseRepository):
     async def ping(self) -> None:
-        """Round trip to Postgres; raises if the database can't be reached."""
+        """Run `SELECT 1` as a round trip to Postgres. Reads nothing and writes
+        nothing.
+
+        Raises if the database can't be reached.
+        """
         await self.session.execute(text("SELECT 1"))
 
 

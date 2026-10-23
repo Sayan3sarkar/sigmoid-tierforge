@@ -4,9 +4,15 @@ from uuid import uuid4
 
 from fastapi import Depends, UploadFile
 
-from api.exceptions import InvalidUploadError, UploadTooLargeError
+from api.dependencies.db_session import DbSessionDep
+from api.exceptions import (
+    EnrichmentDispatchError,
+    InvalidUploadError,
+    UploadTooLargeError,
+)
 from api.repositories.store import StoreRepositoryDep
 from api.schemas.uploads import UploadResponse
+from api.services.jobs import EnrichmentJobServiceDep
 from api.services.uploads.csv_parser import StoreCsvParserDep
 from config import ConfigDep
 
@@ -14,19 +20,25 @@ logger = getLogger(__name__)
 
 
 class UploadService:
-    """Accepts a store CSV: checks the file, validates its contents, saves the stores.
+    """Accepts a store CSV and starts its enrichment.
 
-    All-or-nothing: either every row is saved under a new upload_id, or none is.
+    1. Checks the file and validates its contents (all-or-nothing).
+    2. Saves the stores, an enrichment job and one task per store, and commits.
+    3. Sends one enrichment event per task to SQS; the job becomes RUNNING.
     """
 
     def __init__(
         self,
         parser: StoreCsvParserDep,
         repository: StoreRepositoryDep,
+        jobs: EnrichmentJobServiceDep,
+        session: DbSessionDep,
         config: ConfigDep,
     ) -> None:
         self._parser = parser
         self._repository = repository
+        self._jobs = jobs
+        self._session = session
         self._max_size_bytes = config.upload.max_size_bytes
 
     async def upload_stores(self, file: UploadFile) -> UploadResponse:
@@ -35,11 +47,34 @@ class UploadService:
         rows = self._parser.parse(content)
 
         upload_id = uuid4()
-        row_count = await self._repository.bulk_create(upload_id, rows)
+        store_ids = await self._repository.bulk_create(upload_id, rows)
+        row_count = len(store_ids)
+        job, task_ids = await self._jobs.create_job(upload_id, store_ids)
+        # Stores, job and tasks are committed before any event is sent, so the
+        # worker never receives an event for a row it can't see yet.
+        await self._session.commit()
         logger.info(
-            "Saved %d stores from %s as upload %s", row_count, file.filename, upload_id
+            "Saved %d stores from %s as upload %s (job %s)",
+            row_count,
+            file.filename,
+            upload_id,
+            job.id,
         )
-        return UploadResponse(upload_id=upload_id, row_count=row_count)
+
+        try:
+            job_status = await self._jobs.dispatch(job.id, task_ids)
+        except Exception as e:
+            raise EnrichmentDispatchError(
+                f"The stores were saved as upload {upload_id}, but enrichment job "
+                f"{job.id} could not be started: {e}"
+            ) from e
+
+        return UploadResponse(
+            upload_id=upload_id,
+            row_count=row_count,
+            job_id=job.id,
+            job_status=job_status,
+        )
 
     @staticmethod
     def _check_file_name(file_name: str | None) -> None:

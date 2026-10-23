@@ -43,6 +43,7 @@ class SQSConfig(BaseSettingsConfig, env_prefix="sqs_"):
     enrichment_queue_url: str  # existing queue; provisioned outside this code
     wait_time_seconds: int = 20
     max_messages: int = 10
+    send_concurrency: int = 10  # SendMessageBatch calls in flight at once
 
 
 class EnrichmentConfig(BaseSettingsConfig, env_prefix="enrichment_"):
