@@ -14,3 +14,9 @@ class TaskStatus(StrEnum):
     IN_PROGRESS = auto()  # claimed by the worker
     SUCCEEDED = auto()  # enriched (from phase 3)
     FAILED = auto()  # enrichment call failed (from phase 3)
+
+
+class Tier(StrEnum):
+    LARGE = auto()  # score >= the Large threshold
+    MEDIUM = auto()  # score >= the Medium threshold, below Large
+    SMALL = auto()  # below the Medium threshold

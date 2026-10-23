@@ -8,7 +8,7 @@ TierForge's backend is built in small phases. Each phase ends with something you
 | 1 | Store CSV upload | Done (`b6f2fdb`, `f180f90`) | Uploading `stores_5000.csv` saves 5,000 rows; a bad file returns 422 with reasons |
 | 2 | Upload starts an enrichment job | Done (`89a6459`) | Uploading 5,000 stores creates a running job, 5,000 tasks and 5,000 SQS events; the worker claims every task |
 | 3 | Worker enrichment | Built (live run pending) | Progress climbs to ~88% succeeded / ~12% failed; the job finishes |
-| 4 | Scoring and tiering | Planned | Re-scoring with new settings changes the tier counts |
+| 4 | Scoring and tiering | Built (not committed yet) | Re-scoring with new settings changes the tier counts |
 | 5 | Dashboard reads | Planned | Failures, tier summary and a filterable store list |
 | 6 | Resilience (draft 2) | Later | Retries, backoff, reclaiming hung work, circuit breaker |
 
@@ -85,6 +85,20 @@ The client uses `aiohttp`, already installed with `aiobotocore` and now declared
 - **Table:** `store_scores`. The job row also keeps the latest scoring settings.
 - **Endpoint:** `POST /api/jobs/{job_id}/scoring` with bars, weights and tier thresholds. It validates them (weights add up to 100; Medium ≤ Large threshold), computes a score and tier for every succeeded store from the saved metrics, and replaces the job's previous scores in one transaction. It never calls the simulator.
 - **Done when:** the brief's worked example produces the expected tiers in tests, and re-scoring with different settings changes the tier counts.
+
+**Built:** details and decisions in [architecture.md](architecture.md#scoring-and-tiering).
+
+| Piece | Where |
+| --- | --- |
+| `store_scores` table, `jobs.scoring_config` (JSONB), `Tier` enum | migration `2b82ccc77833`, `api/models/` |
+| Request validation (`ScoringConfig`) and response (`ScoringResponse`) | `api/schemas/scoring.py` |
+| The formula: `StoreScorer.score_store`, `StoreScorer.tier_for` | `api/services/scoring/scorer.py` |
+| Score a job in one transaction, with the job row locked | `api/services/scoring/scoring_service.py` |
+| `POST /api/jobs/{job_id}/scoring`: 200, 404, 409, 422 | `api/routes/jobs.py` |
+
+**Decisions:** only `completed` / `completed_with_failures` jobs can be scored (409 otherwise); a value equal to a bar meets it; only the latest settings are kept; tiers are lowercase (`large`, `medium`, `small`); a finished job with no succeeded stores scores to all-zero counts.
+
+**Checked so far:** 196 tests pass, including the worked example and re-scoring through the endpoint against the test database. Scoring a real 5,000-store job waits for the phase 3 live run.
 
 ## Phase 5: Dashboard reads
 

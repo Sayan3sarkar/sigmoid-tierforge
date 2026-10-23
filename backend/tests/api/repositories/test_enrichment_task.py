@@ -1,14 +1,16 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from pytest import fixture
 from sqlalchemy import select
 
 from api.dependencies.db_session import DBSession
 from api.models import EnrichmentTask, JobStatus, TaskStatus
 from api.repositories.enrichment_task import EnrichmentTaskRepository
 from api.repositories.job import JobRepository
-from api.schemas.enrichment_tasks import EnrichmentTaskCreate, EnrichmentTaskUpdate
+from api.schemas.enrichment_tasks import (
+    EnrichmentTaskUpdate,
+    TaskMetrics,
+)
 from api.schemas.jobs import JobUpdate
 
 
@@ -16,21 +18,6 @@ async def get_task(task_id: int) -> EnrichmentTask:
     async with DBSession.context() as session:
         return await session.scalar(
             select(EnrichmentTask).where(EnrichmentTask.id == task_id)
-        )
-
-
-@fixture
-async def task_ids(upload, job_id) -> list[int]:
-    """One committed PENDING task per store of `upload`."""
-    _, store_ids = upload
-    async with DBSession.context() as session:
-        return await EnrichmentTaskRepository(session).bulk_create(
-            [
-                EnrichmentTaskCreate(
-                    job_id=job_id, store_id=store_id, status=TaskStatus.PENDING
-                )
-                for store_id in store_ids
-            ]
         )
 
 
@@ -154,6 +141,54 @@ class TestEnrichmentTaskRepositoryGet:
             assert (
                 await EnrichmentTaskRepository(session).get(max(task_ids) + 1) is None
             )
+
+
+class TestEnrichmentTaskRepositoryListSucceededMetrics:
+    async def test_returns_only_succeeded_tasks_with_their_metrics(
+        self, job_id, task_ids
+    ):
+        async with DBSession.context() as session:
+            repository = EnrichmentTaskRepository(session)
+            for task_id, footfall in ((task_ids[0], 18234), (task_ids[2], 500)):
+                await repository.update_if_status(
+                    task_id,
+                    job_id,
+                    TaskStatus.PENDING,
+                    EnrichmentTaskUpdate(
+                        status=TaskStatus.SUCCEEDED,
+                        estimated_monthly_footfall=footfall,
+                        estimated_monthly_revenue=Decimal("142033.50"),
+                        store_size_sqft=6210,
+                    ),
+                )
+            await repository.update_if_status(
+                task_ids[1],
+                job_id,
+                TaskStatus.PENDING,
+                EnrichmentTaskUpdate(status=TaskStatus.FAILED, last_error="x"),
+            )
+
+            metrics = await repository.list_succeeded_metrics(job_id)
+
+        assert metrics == [
+            TaskMetrics(
+                task_id=task_ids[0],
+                estimated_monthly_footfall=18234,
+                estimated_monthly_revenue=Decimal("142033.50"),
+                store_size_sqft=6210,
+            ),
+            TaskMetrics(
+                task_id=task_ids[2],
+                estimated_monthly_footfall=500,
+                estimated_monthly_revenue=Decimal("142033.50"),
+                store_size_sqft=6210,
+            ),
+        ]
+
+    async def test_a_job_without_succeeded_tasks_has_none(self, job_id, task_ids):
+        async with DBSession.context() as session:
+            repository = EnrichmentTaskRepository(session)
+            assert await repository.list_succeeded_metrics(job_id) == []
 
 
 class TestEnrichmentTaskRepositoryCountByStatus:

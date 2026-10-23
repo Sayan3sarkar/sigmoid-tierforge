@@ -155,7 +155,7 @@ The brief does not fix any paths. This is a minimal set that covers Steps 1–4 
 | 2 | `GET /api/jobs/{id}/failures` | Why stores failed | store_id, name, attempts made, last error (draft 1: "500", "timeout"; draft 2: "500 after 5 attempts") |
 | 3 | `POST /api/jobs/{id}/scoring` | Applies bars, weights and tier thresholds to saved metrics. Never calls the API. | tier breakdown. Can run while enrichment is still going (it scores whatever has succeeded) or only after it finishes; pick one and document it. |
 | 4 | `GET /api/jobs/{id}/summary` | Dashboard header | job counts + Large / Medium / Small counts from the latest scoring |
-| 4 | `GET /api/jobs/{id}/stores?tier=Large&page=1&page_size=50` | Store list | name, footfall, revenue, size, score, tier; filter by tier, paginated |
+| 4 | `GET /api/jobs/{id}/stores?tier=large&page=1&page_size=50` | Store list | name, footfall, revenue, size, score, tier; filter by tier, paginated |
 | — | `GET /api/health` | Liveness | Can also report whether the DB and simulator are reachable |
 
 Request body for scoring:
@@ -250,9 +250,9 @@ Your reading is right: the simulator is provided, you run it locally, and you mu
 
 ### Open questions (decide and write them in the README)
 
-- [ ] Does a store clear a bar at exactly the bar value (≥) or only above it (>)? This doc assumes ≥, since the brief calls the bar "the minimum value that counts as strong".
+- [x] Does a store clear a bar at exactly the bar value (≥) or only above it (>)? **Decided: ≥**, since the brief calls the bar "the minimum value that counts as strong".
 - [ ] Must CSV columns come in the given order, or just all be present? Are extra columns rejected?
 - [ ] Beyond headers, should rows with blank fields or duplicate `store_id`s be rejected, skipped, or reported?
-- [ ] Can scoring run while enrichment is still in progress, or only after the job finishes?
-- [ ] Keep a history of scoring configs, or only the latest? (The four-table model keeps only the latest, on `jobs`.)
+- [x] Can scoring run while enrichment is still in progress, or only after the job finishes? **Decided: only after it finishes** (`completed` or `completed_with_failures`); otherwise 409.
+- [x] Keep a history of scoring configs, or only the latest? **Decided: only the latest**, on `jobs.scoring_config`.
 - [ ] Exact numbers: request timeout, max attempts per store, circuit-breaker threshold, worker count.

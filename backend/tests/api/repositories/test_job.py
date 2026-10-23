@@ -1,6 +1,8 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from pytest import raises
+from sqlalchemy import select, text
+from sqlalchemy.exc import DBAPIError
 
 from api.dependencies.db_session import DBSession
 from api.models import Job, JobStatus
@@ -80,3 +82,38 @@ class TestJobRepositoryUpdateIfStatus:
             )
 
         assert (first, second) == (True, False)
+
+
+class TestJobRepositoryGet:
+    async def test_returns_the_job(self, upload, job_id):
+        upload_id, _ = upload
+        async with DBSession.context() as session:
+            job = await JobRepository(session).get(job_id)
+
+        assert job.id == job_id
+        assert job.upload_id == upload_id
+        assert job.scoring_config is None
+
+    async def test_returns_none_for_an_unknown_id(self, job_id):
+        async with DBSession.context() as session:
+            assert await JobRepository(session).get(job_id + 1) is None
+
+    async def test_lock_blocks_a_second_locker_until_the_first_commits(self, job_id):
+        async with DBSession.context() as first:
+            await JobRepository(first).get(job_id, lock=True)
+
+            async with DBSession.context() as second:
+                # Give up after 50 ms instead of waiting for the first lock.
+                await second.execute(text("SET LOCAL lock_timeout = '50ms'"))
+                with raises(DBAPIError, match="lock timeout"):
+                    await JobRepository(second).get(job_id, lock=True)
+                await second.rollback()
+
+    async def test_saves_a_scoring_config_as_json(self, job_id):
+        config = {"bars": {"footfall": 15000}, "tiers": {"large_min": 70}}
+        async with DBSession.context() as session:
+            await JobRepository(session).update(
+                job_id, JobUpdate(scoring_config=config)
+            )
+
+        assert (await get_job(job_id)).scoring_config == config

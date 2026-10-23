@@ -6,7 +6,7 @@ How TierForge's backend stores its data and how the API hands work to the worker
 
 | Component | Runs as | Talks to |
 | --- | --- | --- |
-| API (FastAPI) | `poe api` | Postgres, SQS (sends events) |
+| API (FastAPI) | `poe api` | Postgres, SQS (sends events). Scoring uses Postgres only. |
 | Worker | `poe worker` | SQS (receives and deletes events), Postgres, enrichment API (`POST /enrich`) |
 | Enrichment API | third party; locally the simulator (`poe simulator`, port 8000) | — |
 | Postgres | your local instance / RDS | — |
@@ -100,6 +100,43 @@ Draft 1 makes exactly one call per store: a failed call is final. Retries come i
 - The same happens if recording the outcome fails (e.g. the database is briefly unreachable).
 - A 429 fails the store like any other error, although it means "try again later".
 
+## Scoring and tiering
+
+`POST /api/jobs/{job_id}/scoring` sets the scoring rules for a job and applies them in the same call. It only reads saved metrics and never calls the enrichment API, so it can be re-run as often as the user likes.
+
+```json
+{
+  "bars":    {"footfall": 15000, "revenue": 150000, "size_sqft": 8000},
+  "weights": {"footfall": 50,    "revenue": 30,     "size_sqft": 20},
+  "tiers":   {"large_min": 70, "medium_min": 40}
+}
+```
+
+**The formula** (`StoreScorer` in `api/services/scoring/scorer.py`, static methods with no database or I/O):
+- **Score** = the sum of the weights of the bars the store meets. A value exactly equal to its bar meets it (`>=`).
+- **Tier:** score `>= large_min` → `large`; else score `>= medium_min` → `medium`; else `small`. A score exactly at a threshold is in that tier.
+
+**Validation** (422, by the request model `ScoringConfig`):
+- each weight 0–100, and the three add up to exactly 100;
+- bars `>= 0`;
+- `0 <= medium_min <= large_min <= 100`;
+- unknown keys are rejected, so a typo such as `revnue` fails instead of being ignored.
+
+**What a run does** (`ScoringService`), all in one transaction:
+1. Load the job and lock its row, so two scoring runs of the same job happen one after the other. No job → 404.
+2. Check the job has finished enrichment (`completed` or `completed_with_failures`). Otherwise (`pending`, `running`, `failed`) → 409.
+3. Read the metrics of the job's `succeeded` tasks in one query, and score each store in Python.
+4. Replace the job's `store_scores`: one delete, one bulk insert.
+5. Save the settings on `jobs.scoring_config`.
+6. Commit, and return the counts per tier.
+
+Readers see either the previous scores or the new ones, never a mix, and running it twice with the same settings gives the same result. Failed stores get no score: they appear in the failures list (phase 5), not in the tier counts. A finished job with no succeeded stores can still be scored; every tier count is then 0.
+
+**Decisions:**
+- **Only finished jobs can be scored.** The tier counts are then always for the job's final set of stores; scores taken mid-run would go stale as more tasks finish.
+- **Scoring in Python, not one SQL `INSERT … SELECT`.** The formula lives in one pure function that's unit-tested without a database. For 5,000 stores it's still one read and one bulk write, well under a second.
+- **Only the latest settings are kept** (`jobs.scoring_config`), with no history.
+
 ## Data stores
 
 The exact schema, with every column, index and constraint, is in **[datastores.md](datastores.md)**. In short:
@@ -107,10 +144,11 @@ The exact schema, with every column, index and constraint, is in **[datastores.m
 | Table | One row per | Written by | Since |
 | --- | --- | --- | --- |
 | `stores` | row of an uploaded CSV | upload, once | phase 1 |
-| `jobs` | enrichment run of one upload | upload (create, `running` / `failed`); worker (`completed` / `completed_with_failures`) | phase 2 |
+| `jobs` | enrichment run of one upload | upload (create, `running` / `failed`); worker (`completed` / `completed_with_failures`); scoring (`scoring_config`) | phase 2; `scoring_config` phase 4 |
 | `enrichment_tasks` | store within a job: the unit of work, and its enrichment result (footfall, revenue, size) | upload (create); worker (status, results) | phase 2; result columns phase 3 |
+| `store_scores` | scored store in a job: its score and tier | scoring (rewritten on every run) | phase 4 |
 
-Statuses are plain `TEXT` in Postgres and `StrEnum`s in Python (`JobStatus`, `TaskStatus`).
+Statuses and tiers are plain `TEXT` in Postgres and `StrEnum`s in Python (`JobStatus`, `TaskStatus`, `Tier`).
 
 ## SQS events
 

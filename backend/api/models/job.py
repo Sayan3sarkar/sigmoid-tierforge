@@ -1,7 +1,9 @@
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import BigInteger, DateTime, Integer, Text, Uuid, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from api.models.base import Base
@@ -23,3 +25,6 @@ class Job(Base):
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The settings the job's stores were last scored with (a ScoringConfig);
+    # null until the job is first scored. Only the latest is kept.
+    scoring_config: Mapped[dict[str, Any] | None] = mapped_column(JSONB)

@@ -6,7 +6,11 @@ from sqlalchemy import func, insert, select, update
 
 from api.models import EnrichmentTask, Job, JobStatus, TaskStatus
 from api.repositories.base import BaseRepository
-from api.schemas.enrichment_tasks import EnrichmentTaskCreate, EnrichmentTaskUpdate
+from api.schemas.enrichment_tasks import (
+    EnrichmentTaskCreate,
+    EnrichmentTaskUpdate,
+    TaskMetrics,
+)
 
 
 class EnrichmentTaskRepository(BaseRepository):
@@ -32,6 +36,32 @@ class EnrichmentTaskRepository(BaseRepository):
         return await self.session.scalar(
             select(EnrichmentTask).where(EnrichmentTask.id == task_id)
         )
+
+    async def list_succeeded_metrics(self, job_id: int) -> list[TaskMetrics]:
+        """Return the metrics of every SUCCEEDED task of the job, in one query,
+        ordered by task id. Read only."""
+        result = await self.session.execute(
+            select(
+                EnrichmentTask.id,
+                EnrichmentTask.estimated_monthly_footfall,
+                EnrichmentTask.estimated_monthly_revenue,
+                EnrichmentTask.store_size_sqft,
+            )
+            .where(
+                EnrichmentTask.job_id == job_id,
+                EnrichmentTask.status == TaskStatus.SUCCEEDED,
+            )
+            .order_by(EnrichmentTask.id)
+        )
+        return [
+            TaskMetrics(
+                task_id=task_id,
+                estimated_monthly_footfall=footfall,
+                estimated_monthly_revenue=revenue,
+                store_size_sqft=size_sqft,
+            )
+            for task_id, footfall, revenue, size_sqft in result
+        ]
 
     async def count_by_status(self, job_id: int) -> dict[TaskStatus, int]:
         """Count the job's tasks per status, in one grouped query served by the

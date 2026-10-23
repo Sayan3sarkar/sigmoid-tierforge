@@ -35,6 +35,18 @@ class EnrichmentDispatchError(AppError):
     status_code = 503
 
 
+class JobNotFoundError(AppError):
+    """No job has the requested id."""
+
+    status_code = 404
+
+
+class JobNotScorableError(AppError):
+    """The job exists but can't be scored in its current status."""
+
+    status_code = 409
+
+
 class SQSQueueUnavailableError(RuntimeError):
     """The configured SQS queue can't be reached (wrong URL, missing queue, no access).
 

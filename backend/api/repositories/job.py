@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import Depends
-from sqlalchemy import update
+from sqlalchemy import select, update
 
 from api.models import Job, JobStatus
 from api.repositories.base import BaseRepository
@@ -21,6 +21,18 @@ class JobRepository(BaseRepository):
         self.session.add(job)
         await self.session.flush()
         return job
+
+    async def get(self, job_id: int, lock: bool = False) -> Job | None:
+        """Return the job with `job_id`, or None if there is none.
+
+        With `lock`, the row is locked (SELECT ... FOR UPDATE) until the
+        caller's transaction ends, so callers that lock the same job run one
+        after another. Does not commit.
+        """
+        query = select(Job).where(Job.id == job_id)
+        if lock:
+            query = query.with_for_update()
+        return await self.session.scalar(query)
 
     async def update(self, job_id: int, changes: JobUpdate) -> None:
         """Update one job, writing only the fields explicitly set on `changes`.

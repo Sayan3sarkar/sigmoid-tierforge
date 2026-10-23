@@ -43,3 +43,14 @@ class ClaimedTask(BaseModel):
     # Calls made before this one; the outcome is saved as attempt_count + 1.
     attempt_count: int
     request: EnrichRequest
+
+
+class TaskMetrics(BaseModel):
+    """The saved metrics of one SUCCEEDED task: what scoring reads."""
+
+    model_config = ConfigDict(frozen=True)
+
+    task_id: int
+    estimated_monthly_footfall: int
+    estimated_monthly_revenue: Decimal
+    store_size_sqft: int

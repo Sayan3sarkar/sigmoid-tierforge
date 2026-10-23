@@ -6,8 +6,9 @@ and is included here, e.g. /api/health, /api/uploads, /api/jobs.
 
 from fastapi import APIRouter
 
-from api.routes import health, uploads
+from api.routes import health, jobs, uploads
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(health.router)
 api_router.include_router(uploads.router)
+api_router.include_router(jobs.router)

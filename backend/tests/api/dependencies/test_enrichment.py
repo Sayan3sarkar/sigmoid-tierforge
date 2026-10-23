@@ -120,7 +120,10 @@ class TestEnrichmentClientFailures:
 
         async with ClientSession(base_url=f"http://127.0.0.1:{port}") as http:
             client = EnrichmentClient(http, timeout_seconds=10)
-            with raises(EnrichmentConnectionError, match="connection failed: ClientConnectorError"):
+            with raises(
+                EnrichmentConnectionError,
+                match="connection failed: ClientConnectorError",
+            ):
                 await client.enrich(REQUEST)
 
     async def test_a_body_without_metrics_is_invalid(self, client_for):

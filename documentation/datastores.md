@@ -6,6 +6,8 @@ The Postgres tables as they exist today. How they're used: [architecture.md](arc
 erDiagram
     stores ||--o{ enrichment_tasks : "store_id"
     jobs ||--|{ enrichment_tasks : "job_id"
+    jobs ||--o{ store_scores : "job_id"
+    enrichment_tasks ||--o| store_scores : "task_id"
 
     stores {
         bigint id PK
@@ -28,6 +30,7 @@ erDiagram
         timestamptz created_at
         timestamptz started_at "nullable"
         timestamptz finished_at "nullable"
+        jsonb scoring_config "nullable"
     }
 
     enrichment_tasks {
@@ -43,6 +46,14 @@ erDiagram
         timestamptz created_at
         timestamptz updated_at
         timestamptz finished_at "nullable"
+    }
+
+    store_scores {
+        bigint job_id PK, FK
+        bigint task_id PK, FK
+        integer score
+        text tier
+        timestamptz scored_at
     }
 ```
 
@@ -83,6 +94,7 @@ One row per enrichment run, created by the upload.
 | `created_at` | `timestamptz` | not null | `now()` | |
 | `started_at` | `timestamptz` | null | | when every event was sent |
 | `finished_at` | `timestamptz` | null | | when the job ended: it `failed`, or its last task finished |
+| `scoring_config` | `jsonb` | null | | the settings its stores were last scored with (bars, weights, tiers, as sent to the scoring endpoint); null until first scored |
 
 | Constraint / index | Definition |
 | --- | --- |
@@ -131,8 +143,29 @@ One row per store in a job: the unit of work. One SQS event is sent per task. It
 | `succeeded` | enriched |
 | `failed` | the enrichment call failed (`last_error` says why) |
 
+## `store_scores`
+
+One row per scored store in a job: the store's score and tier from the job's latest scoring. Only `succeeded` tasks are scored. Every scoring run of a job deletes and rewrites all of that job's rows in one transaction.
+
+| Column | Type | Null | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `job_id` | `bigint` | not null | | → `jobs.id` |
+| `task_id` | `bigint` | not null | | → `enrichment_tasks.id`: the scored store's task, which holds its metrics |
+| `score` | `integer` | not null | | 0–100: the sum of the weights of the bars the store meets |
+| `tier` | `text` | not null | | `large`, `medium` or `small` |
+| `scored_at` | `timestamptz` | not null | `now()` | when the scoring run happened; the same for every row of one run |
+
+| Constraint / index | Definition |
+| --- | --- |
+| `pk_store_scores` | `PRIMARY KEY (job_id, task_id)`: one score per store per job; also serves "all scores of a job" (the delete before each rewrite) |
+| `fk_store_scores_job_id_jobs` | `FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE` |
+| `fk_store_scores_task_id_enrichment_tasks` | `FOREIGN KEY (task_id) REFERENCES enrichment_tasks(id) ON DELETE CASCADE` |
+| `ix_store_scores_job_id_tier` | `INDEX (job_id, tier)`: counts per tier, and the store list filtered by tier (phase 5) |
+
 ## Notes
 
-- **Statuses** are plain `TEXT`. The values come from the `StrEnum`s `JobStatus` and `TaskStatus` in `backend/api/models/enums.py`. The app sets the `pending` defaults; neither the app nor the database rejects other values.
+- **Statuses and tiers** are plain `TEXT`. The values come from the `StrEnum`s `JobStatus`, `TaskStatus` and `Tier` in `backend/api/models/enums.py`. The app sets the `pending` defaults; neither the app nor the database rejects other values.
 - **Enrichment results** live on the task rather than in a separate table: each task has at most one result, and scoring (phase 4) reads the metrics of a job's `succeeded` tasks. The three metric columns use the enrichment API's own field names. Revenue is `numeric(12,2)` (exact to the cent; `Decimal` in Python), not a float.
+- **Scores live apart from metrics:** metrics are slow to get and never change; scores are cheap and rewritten on every scoring run. Keeping them in separate tables means re-scoring can never touch enrichment data.
+- **Only the latest scoring settings** are kept, on `jobs.scoring_config`; there is no history of earlier settings.
 - **Constraint and index names** follow the convention in `backend/api/models/base.py`: `pk_`, `uq_`, `fk_`, `ix_`.
