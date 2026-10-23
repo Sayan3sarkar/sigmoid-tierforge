@@ -27,14 +27,14 @@ class ScoringService:
 
     def __init__(
         self,
-        jobs: JobRepositoryDep,
-        tasks: EnrichmentTaskRepositoryDep,
-        scores: StoreScoreRepositoryDep,
+        jobs_repository: JobRepositoryDep,
+        tasks_repository: EnrichmentTaskRepositoryDep,
+        scores_repository: StoreScoreRepositoryDep,
         session: DbSessionDep,
     ) -> None:
-        self._jobs = jobs
-        self._tasks = tasks
-        self._scores = scores
+        self._jobs_repository = jobs_repository
+        self._enrichment_tasks_repository = tasks_repository
+        self._scores_repository = scores_repository
         self._session = session
 
     async def score_job(
@@ -51,7 +51,7 @@ class ScoringService:
         """
         # 1. Load the job, locking it so two scoring runs of the same job happen
         #    one after the other instead of interleaving their delete and insert.
-        job = await self._jobs.get(job_id, lock=True)
+        job = await self._jobs_repository.get(job_id, lock=True)
         if job is None:
             raise JobNotFoundError(f"Job {job_id} not found.")
         if job.status not in SCORABLE_STATUSES:
@@ -62,9 +62,9 @@ class ScoringService:
             )
 
         # 2. Read every succeeded store's metrics in one query and score them.
-        metrics = await self._tasks.list_succeeded_metrics(job_id)
+        metrics = await self._enrichment_tasks_repository.list_succeeded_metrics(job_id)
         scored_at = datetime.now(UTC)
-        new_scores = []
+        new_scores: list[StoreScoreCreate] = []
         for task in metrics:
             score = StoreScorer.score_store(
                 task.estimated_monthly_footfall,
@@ -84,11 +84,15 @@ class ScoringService:
 
         # 3. Replace the job's scores (one delete, one bulk insert) and save the
         #    settings they were computed with.
-        await self._scores.replace_for_job(job_id, new_scores)
-        await self._jobs.update(
-            job_id, JobUpdate(scoring_config=scoring_config.model_dump(mode="json"))
+        await self._scores_repository.replace_for_job(job_id, new_scores)
+        await self._jobs_repository.update(
+            job_id,
+            JobUpdate(
+                scoring_config=scoring_config.model_dump(mode="json"),
+                scored_at=scored_at,
+            ),
         )
-        counts = await self._scores.count_by_tier(job_id)
+        counts = await self._scores_repository.count_by_tier(job_id)
 
         # 4. One commit for all of it.
         await self._session.commit()

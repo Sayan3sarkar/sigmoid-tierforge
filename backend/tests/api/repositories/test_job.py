@@ -1,13 +1,14 @@
 from datetime import UTC, datetime
 
 from pytest import raises
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import DBAPIError
 
 from api.dependencies.db_session import DBSession
 from api.models import Job, JobStatus
 from api.repositories.job import JobRepository
-from api.schemas.jobs import JobUpdate
+from api.schemas.jobs import JobCreate, JobUpdate
+from api.schemas.pagination import PageParams
 
 
 async def get_job(job_id: int) -> Job:
@@ -117,3 +118,42 @@ class TestJobRepositoryGet:
             )
 
         assert (await get_job(job_id)).scoring_config == config
+
+
+class TestJobRepositoryListRecent:
+    async def test_returns_jobs_newest_first_with_the_total(self, upload):
+        upload_id, store_ids = upload
+        async with DBSession.context() as session:
+            repository = JobRepository(session)
+            created = [
+                await repository.create(
+                    JobCreate(
+                        upload_id=upload_id, total_tasks=1, status=JobStatus.PENDING
+                    )
+                )
+                for _ in range(3)
+            ]
+            # Other tests' jobs share this database, so compare the first page
+            # against the three newest and the total against a fresh count.
+            jobs, total = await repository.list_recent(PageParams(page_size=3))
+            all_jobs = await session.scalar(select(func.count()).select_from(Job))
+
+        assert [job.id for job in jobs] == [job.id for job in reversed(created)]
+        assert total == all_jobs
+
+    async def test_pages_through_the_jobs(self, upload):
+        upload_id, _ = upload
+        async with DBSession.context() as session:
+            repository = JobRepository(session)
+            for _ in range(3):
+                await repository.create(
+                    JobCreate(
+                        upload_id=upload_id, total_tasks=1, status=JobStatus.PENDING
+                    )
+                )
+            first, _ = await repository.list_recent(PageParams(page=1, page_size=2))
+            second, _ = await repository.list_recent(PageParams(page=2, page_size=2))
+
+        assert len(first) == 2
+        assert first[-1].created_at >= second[0].created_at
+        assert {job.id for job in first}.isdisjoint(job.id for job in second)

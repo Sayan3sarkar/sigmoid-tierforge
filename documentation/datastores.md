@@ -31,6 +31,7 @@ erDiagram
         timestamptz started_at "nullable"
         timestamptz finished_at "nullable"
         jsonb scoring_config "nullable"
+        timestamptz scored_at "nullable"
     }
 
     enrichment_tasks {
@@ -95,6 +96,7 @@ One row per enrichment run, created by the upload.
 | `started_at` | `timestamptz` | null | | when every event was sent |
 | `finished_at` | `timestamptz` | null | | when the job ended: it `failed`, or its last task finished |
 | `scoring_config` | `jsonb` | null | | the settings its stores were last scored with (bars, weights, tiers, as sent to the scoring endpoint); null until first scored |
+| `scored_at` | `timestamptz` | null | | when the job was last scored; null until then. Kept on the job because a job with no succeeded stores has no `store_scores` rows to carry it |
 
 | Constraint / index | Definition |
 | --- | --- |
@@ -160,12 +162,12 @@ One row per scored store in a job: the store's score and tier from the job's lat
 | `pk_store_scores` | `PRIMARY KEY (job_id, task_id)`: one score per store per job; also serves "all scores of a job" (the delete before each rewrite) |
 | `fk_store_scores_job_id_jobs` | `FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE` |
 | `fk_store_scores_task_id_enrichment_tasks` | `FOREIGN KEY (task_id) REFERENCES enrichment_tasks(id) ON DELETE CASCADE` |
-| `ix_store_scores_job_id_tier` | `INDEX (job_id, tier)`: counts per tier, and the store list filtered by tier (phase 5) |
+| `ix_store_scores_job_id_tier` | `INDEX (job_id, tier)`: counts per tier, and the store list filtered by tier |
 
 ## Notes
 
 - **Statuses and tiers** are plain `TEXT`. The values come from the `StrEnum`s `JobStatus`, `TaskStatus` and `Tier` in `backend/api/models/enums.py`. The app sets the `pending` defaults; neither the app nor the database rejects other values.
-- **Enrichment results** live on the task rather than in a separate table: each task has at most one result, and scoring (phase 4) reads the metrics of a job's `succeeded` tasks. The three metric columns use the enrichment API's own field names. Revenue is `numeric(12,2)` (exact to the cent; `Decimal` in Python), not a float.
+- **Enrichment results** live on the task rather than in a separate table: each task has at most one result, and scoring reads the metrics of a job's `succeeded` tasks. The three metric columns use the enrichment API's own field names. Revenue is `numeric(12,2)` (exact to the cent; `Decimal` in Python), not a float.
 - **Scores live apart from metrics:** metrics are slow to get and never change; scores are cheap and rewritten on every scoring run. Keeping them in separate tables means re-scoring can never touch enrichment data.
 - **Only the latest scoring settings** are kept, on `jobs.scoring_config`; there is no history of earlier settings.
 - **Constraint and index names** follow the convention in `backend/api/models/base.py`: `pk_`, `uq_`, `fk_`, `ix_`.

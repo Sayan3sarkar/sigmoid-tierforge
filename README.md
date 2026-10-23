@@ -1,120 +1,157 @@
 # TierForge
 
-TierForge reads a CSV of stores and enriches each store with metrics from a slow, flaky third-party API (the provided simulator). It then scores each store and sorts it into Large, Medium or Small.
+TierForge scores and tiers a large list of stores. A user uploads a CSV of stores. A background job then enriches each store with three metrics (monthly footfall, monthly revenue, store size) from a slow, rate-limited and unreliable third-party API: the provided simulator, at most 5 calls/s. Once enrichment finishes, the user sets a bar and a weight per metric plus tier thresholds, and TierForge scores every enriched store and sorts it into **Large**, **Medium** or **Small**. Scoring uses only the saved metrics, so it's fast and can be re-run any time.
 
-What the system must do: [REQUIREMENTS.md](REQUIREMENTS.md)
+The backend is a FastAPI API and a separate SQS worker, sharing a PostgreSQL database.
+
+## Documentation
+
+| Document                                                                 | What's in it                                                                      |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| [Requirements](documentation/REQUIREMENTS.md)                            | What the system must do: backend and frontend                                     |
+| [Architecture](documentation/architecture.md)                            | High-level design: components, flows, key decisions                               |
+| [Data stores](documentation/datastores.md)                               | Every table, column, constraint and index                                         |
+| [Limitations and trade-offs](documentation/limitations-and-tradeoffs.md) | Known limitations, design trade-offs, future scope, what's intentionally left out |
 
 ## Repository layout
 
 ```
 sigmoid-tierforge/
-├── backend/                     Python backend (Poetry project)
-│   ├── api/                     FastAPI app
-│   │   ├── main.py              App factory + lifespan (DB engine)
-│   │   ├── routes/              HTTP routes, all under /api
-│   │   ├── services/            Business logic, injected as FastAPI dependencies
-│   │   ├── repositories/        DB access, injected as FastAPI dependencies
-│   │   ├── models/              SQLAlchemy models (shared with the worker)
-│   │   ├── schemas/             Pydantic request/response and message schemas
-│   │   └── dependencies/        Shared resources injected into routes:
-│   │       ├── db_session.py    DB engine (created once) and per-request session
-│   │       └── aws/sqs.py       Shared async SQS client (aiobotocore)
-│   ├── worker/worker.py         SQS consumer
-│   ├── config/                  Config class (pydantic-settings, reads .env)
-│   ├── migrations/              Alembic migrations
-│   ├── scripts/                 Database and LocalStack setup scripts
-│   ├── tests/                   pytest suite (settings in tests/.test.env)
-│   ├── make.toml                Poe tasks: app, tests, formatting, checks
-│   └── db.toml                  Poe tasks: database and migrations
-├── enrichment_simulator/        Provided enrichment API (not in git; do not modify)
-└── frontend/                    (later)
+├── backend/                  FastAPI API and SQS worker (one Poetry project)
+│   ├── api/                  routes, services, repositories, models, schemas
+│   ├── worker/               SQS consumer and rate limiter
+│   ├── config/               settings (pydantic-settings, reads backend/.env)
+│   ├── migrations/           Alembic migrations
+│   ├── scripts/              database and LocalStack setup scripts
+│   └── tests/                pytest suite (settings in tests/.test.env)
+├── documentation/            requirements, architecture, data stores, limitations
+├── enrichment_simulator.zip  the provided enrichment API (unzip; don't modify)
+└── stores_5000.csv           sample upload with 5,000 stores
 ```
 
-## Prerequisites
+## Getting started
 
-| Tool                                        | Version | Used for                            |
-| ------------------------------------------- | ------- | ----------------------------------- |
-| Python                                      | 3.12    | Backend and simulator               |
-| [Poetry](https://python-poetry.org/)        | 2.x     | Dependencies and virtualenv         |
-| Docker                                      | any     | Postgres and LocalStack containers  |
-| AWS CLI                                     | v2      | Used by the LocalStack setup script |
+### Prerequisites
 
-### Postgres and LocalStack containers
+| Tool                                 | Version                                  |
+| ------------------------------------ | ---------------------------------------- |
+| Python                               | 3.12 or 3.13                             |
+| [Poetry](https://python-poetry.org/) | 2.x                                      |
+| Docker                               | any recent                               |
+| AWS CLI                              | v2 (used by the LocalStack setup script) |
 
-Skip these if you already have Postgres on `localhost:5432` and LocalStack on `localhost:4566`.
+### 1. Start Postgres and LocalStack
 
 ```bash
-# Postgres 16 on localhost:5432 (user postgres / password postgres)
 docker run -d --name tierforge-postgres \
   -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
   -p 5432:5432 postgres:16
 
-# LocalStack (SQS) on localhost:4566
 docker run -d --name tierforge-localstack \
   -e SERVICES=sqs \
   -p 4566:4566 localstack/localstack
 ```
 
-If your LocalStack version asks for an auth token, add `-e LOCALSTACK_AUTH_TOKEN=<your token>` to the LocalStack command.
+If your LocalStack version asks for an auth token, add `-e LOCALSTACK_AUTH_TOKEN=<token>`. If you already run Postgres on `localhost:5432` or LocalStack on `localhost:4566`, skip that container.
 
-## First-time setup
+### 2. Unzip the enrichment simulator
+
+From the repository root:
+
+```bash
+unzip enrichment_simulator.zip -x "__MACOSX/*"
+```
+
+This creates `enrichment_simulator/` next to `backend/`. It's git-ignored and must not be modified. Its dependencies are already in the backend environment.
+
+### 3. Install and configure
 
 ```bash
 cd backend
-
-# 1. Install dependencies (creates the virtualenv)
 poetry install
-
-# 2. Create your env file, then adjust values if your setup differs
 cp .env.example .env
-
-# 3. Create the database, run migrations and create the SQS queues
-poetry run poe setup
 ```
 
-The provided simulator must be extracted to `enrichment_simulator/` at the repo root, next to `backend/`. Don't modify it. Its dependencies (FastAPI, Uvicorn) are already in the backend environment.
+The defaults in `.env` match the containers above. `tests/.test.env` is committed and needs no copy.
 
-## Running
+### 4. Create the SQS queues, the database and its tables
 
-Each command runs in its own terminal, from `backend/`:
+From `backend/`:
 
 ```bash
-poetry run poe simulator   # enrichment simulator on http://localhost:8000
-poetry run poe api         # API on http://localhost:8001 (docs at /docs)
-poetry run poe worker      # SQS consumer
+poetry run poe localstack_init   # SQS queue + dead-letter queue in LocalStack (safe to re-run)
+poetry run poe db_create         # the database in DATABASE_URL, if it doesn't exist
+poetry run poe db_upgrade        # run all Alembic migrations
 ```
 
-To drop the `poetry run` prefix, activate the virtualenv once per shell with `eval $(poetry env activate)`, then run `poe api`, `poe worker`, and so on.
+`poetry run poe setup` runs all three in one go.
+
+### 5. Run
+
+Run each process in its own terminal, from `backend/`:
+
+```bash
+poetry run poe simulator   # enrichment API on http://localhost:8000
+poetry run poe api         # TierForge API on http://localhost:8001 (interactive docs at /docs)
+poetry run poe worker      # SQS worker
+```
+
+Running `eval $(poetry env activate)` once per shell lets you drop the `poetry run` prefix.
+
+### 6. Try it
+
+```bash
+# Upload the sample file: returns the job_id
+curl -F "file=@../stores_5000.csv;type=text/csv" http://localhost:8001/api/uploads
+
+# Watch progress (enriching 5,000 stores takes ~18.5 minutes)
+curl http://localhost:8001/api/jobs/1
+
+# Once the job is completed (or completed_with_failures), score it
+curl -H "Content-Type: application/json" http://localhost:8001/api/jobs/1/scoring -d '{
+  "bars":    {"footfall": 15000, "revenue": 150000, "size_sqft": 8000},
+  "weights": {"footfall": 50,    "revenue": 30,     "size_sqft": 20},
+  "tiers":   {"large_min": 70, "medium_min": 40}}'
+
+# Tier counts, the Large stores, and the failed stores with reasons
+curl http://localhost:8001/api/jobs/1/summary
+curl "http://localhost:8001/api/jobs/1/stores?tier=large"
+curl "http://localhost:8001/api/jobs/1/stores?status=failed"
+```
+
+### 7. Run the tests
+
+From `backend/`, with Postgres running:
+
+```bash
+poetry run poe test
+```
+
+Each run creates its own temporary database (`tierforge_test_<random>`), migrates it, and drops it at the end. SQS and the enrichment API are mocked, so LocalStack and the simulator don't need to be running.
 
 ## Poe tasks
 
-Run `poe --help` for the full list. Every task reads `backend/.env`.
+Run them from `backend/`; every task reads `backend/.env`. `poetry run poe --help` lists them all.
 
-| Task                                 | What it does                                                        |
-| ------------------------------------ | ------------------------------------------------------------------- |
-| `poe api`                            | Run the FastAPI server with auto-reload                             |
-| `poe worker`                         | Run the SQS consumer                                                |
-| `poe simulator`                      | Run the provided enrichment simulator                               |
-| `poe setup`                          | One-time setup: `db_create`, `db_upgrade`, `localstack_init`        |
-| `poe localstack_init`                | Create the SQS queue and its dead-letter queue (safe to re-run)     |
-| `poe test`                           | Run the tests (settings from `tests/.test.env`)                     |
-| `poe format`                         | Sort imports (isort) and format code (black, 88 characters)         |
-| `poe check`                          | flake8, plus isort and black checks without changing files          |
-| `poe db_create`                      | Create the database in `DATABASE_URL` if it doesn't exist           |
-| `poe db_create_migration -m "msg"`   | Autogenerate a migration from the models                            |
-| `poe db_upgrade [revision]`          | Apply migrations (default: `head`)                                  |
-| `poe db_downgrade [revision]`        | Roll back migrations (default: one step, `-1`)                      |
-| `poe db_current` / `poe db_history`  | Show the current revision / list all migrations                     |
+| Task                                                        | What it does                                                             |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `poe api` / `poe worker` / `poe simulator`                  | Run the API (auto-reload), the worker, or the simulator                  |
+| `poe setup`                                                 | `db_create`, `db_upgrade` and `localstack_init` in one go                |
+| `poe localstack_init`                                       | Create the SQS queue and its dead-letter queue in LocalStack             |
+| `poe db_create`                                             | Create the database in `DATABASE_URL` if it doesn't exist                |
+| `poe db_upgrade [revision]` / `poe db_downgrade [revision]` | Apply migrations (default `head`) / roll back (default one step)         |
+| `poe db_create_migration -m "message"`                      | Autogenerate a migration from the models                                 |
+| `poe db_current` / `poe db_history`                         | Show the current revision / list all migrations                          |
+| `poe test`                                                  | Run the test suite                                                       |
+| `poe format` / `poe check`                                  | Format (isort, black) / lint and check formatting (flake8, isort, black) |
 
 ## Configuration
 
-Settings live in `backend/.env` and are read by the `Config` class in [backend/config/settings.py](backend/config/settings.py). See [backend/.env.example](backend/.env.example) for every variable. `.env` is git-ignored; `.env.example` and `tests/.test.env` are committed.
+Settings live in `backend/.env`, read by `Config` in [backend/config/settings.py](backend/config/settings.py). [backend/.env.example](backend/.env.example) documents every variable, including the enrichment rate (`ENRICHMENT_RATE_PER_SECOND`, default 4.5), timeout (10 s) and number of handlers (8).
 
-### SQS
+**SQS:** the app never creates queues; it uses the existing queue at `SQS_ENRICHMENT_QUEUE_URL`.
 
-The app never creates queues; it only connects to an existing one through `SQS_ENRICHMENT_QUEUE_URL`.
-
-- **Locally:** `poe localstack_init` creates the queue in LocalStack, named after the last part of that URL (plus a `-dlq` dead-letter queue). `000000000000` in the URL is LocalStack's default account ID.
-- **In AWS:** the queue is provisioned with Terraform. Set `SQS_ENRICHMENT_QUEUE_URL` to its URL and leave `AWS_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` unset, so the client uses the real AWS endpoint and the IAM role.
-- **Startup check:** the worker verifies the queue on startup with a read-only `GetQueueAttributes` call and refuses to start if it's unreachable. The API doesn't check at startup, so uploads, the dashboard and health keep working even if SQS is down.
-- **IAM:** the worker's Terraform IAM policy needs `sqs:GetQueueAttributes`, `sqs:ReceiveMessage` and `sqs:DeleteMessage` on the queue; the API's needs `sqs:SendMessage` (from phase 2, when it starts sending jobs).
+- **Locally,** `poe localstack_init` creates it in LocalStack (`000000000000` in the URL is LocalStack's default account ID).
+- **In AWS,** it's provisioned with Terraform. Leave `AWS_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` unset, so the real endpoint and the IAM role are used.
+- **At startup,** the worker checks the queue is reachable and refuses to start if not. If SQS is down while the API runs, uploads return 503 and everything else keeps working.
+- **IAM:** the API needs `sqs:SendMessage`; the worker needs `sqs:GetQueueAttributes`, `sqs:ReceiveMessage` and `sqs:DeleteMessage`.

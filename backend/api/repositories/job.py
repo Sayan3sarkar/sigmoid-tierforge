@@ -1,11 +1,12 @@
 from typing import Annotated
 
 from fastapi import Depends
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from api.models import Job, JobStatus
 from api.repositories.base import BaseRepository
 from api.schemas.jobs import JobCreate, JobUpdate
+from api.schemas.pagination import PageParams
 
 
 class JobRepository(BaseRepository):
@@ -33,6 +34,18 @@ class JobRepository(BaseRepository):
         if lock:
             query = query.with_for_update()
         return await self.session.scalar(query)
+
+    async def list_recent(self, page: PageParams) -> tuple[list[Job], int]:
+        """Return one page of jobs, newest first, and the total number of jobs.
+        Read only."""
+        jobs = await self.session.scalars(
+            select(Job)
+            .order_by(Job.created_at.desc(), Job.id.desc())
+            .offset(page.offset)
+            .limit(page.page_size)
+        )
+        total = await self.session.scalar(select(func.count()).select_from(Job))
+        return list(jobs), total or 0
 
     async def update(self, job_id: int, changes: JobUpdate) -> None:
         """Update one job, writing only the fields explicitly set on `changes`.

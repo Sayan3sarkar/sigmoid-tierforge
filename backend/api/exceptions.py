@@ -1,6 +1,7 @@
 from logging import getLogger
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from api.schemas.errors import ErrorResponse
@@ -100,3 +101,26 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
         body = ErrorResponse(detail=exc.detail, errors=exc.errors)
         return JSONResponse(status_code=exc.status_code, content=body.model_dump())
+
+    @app.exception_handler(RequestValidationError)
+    async def handle_validation_error(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        """Invalid query parameters or body: 422 in the same shape as every
+        other error, with one readable line per problem."""
+        errors = [describe_validation_error(error) for error in exc.errors()]
+        logger.info(
+            "%s %s -> 422: %s", request.method, request.url.path, "; ".join(errors)
+        )
+        body = ErrorResponse(detail="Invalid request.", errors=errors)
+        return JSONResponse(status_code=422, content=body.model_dump())
+
+
+def describe_validation_error(error: dict) -> str:
+    """One validation error as `<where>.<field>: <message>`, e.g.
+    `query.page_size: Input should be less than or equal to 200` or
+    `body.weights: weights must add up to 100, not 110`."""
+    location = ".".join(str(part) for part in error.get("loc", ()))
+    # Our own validators' messages come prefixed by Pydantic.
+    message = str(error.get("msg", "")).removeprefix("Value error, ")
+    return f"{location}: {message}" if location else message

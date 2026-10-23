@@ -30,14 +30,14 @@ class UploadService:
     def __init__(
         self,
         parser: StoreCsvParserDep,
-        repository: StoreRepositoryDep,
+        store_repository: StoreRepositoryDep,
         jobs: EnrichmentJobServiceDep,
         session: DbSessionDep,
         config: ConfigDep,
     ) -> None:
         self._parser = parser
-        self._repository = repository
-        self._jobs = jobs
+        self._store_repository = store_repository
+        self._jobs_service = jobs
         self._session = session
         self._max_size_bytes = config.upload.max_size_bytes
 
@@ -47,9 +47,9 @@ class UploadService:
         rows = self._parser.parse(content)
 
         upload_id = uuid4()
-        store_ids = await self._repository.bulk_create(upload_id, rows)
+        store_ids = await self._store_repository.bulk_create(upload_id, rows)
         row_count = len(store_ids)
-        job, task_ids = await self._jobs.create_job(upload_id, store_ids)
+        job, task_ids = await self._jobs_service.create_job(upload_id, store_ids)
         # Stores, job and tasks are committed before any event is sent, so the
         # worker never receives an event for a row it can't see yet.
         await self._session.commit()
@@ -62,7 +62,7 @@ class UploadService:
         )
 
         try:
-            job_status = await self._jobs.dispatch(job.id, task_ids)
+            job_status = await self._jobs_service.dispatch(job.id, task_ids)
         except Exception as e:
             raise EnrichmentDispatchError(
                 f"The stores were saved as upload {upload_id}, but enrichment job "

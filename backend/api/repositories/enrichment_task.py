@@ -2,15 +2,17 @@ from collections.abc import Sequence
 from typing import Annotated
 
 from fastapi import Depends
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import Select, func, insert, select, update
 
-from api.models import EnrichmentTask, Job, JobStatus, TaskStatus
+from api.models import EnrichmentTask, Job, JobStatus, Store, StoreScore, TaskStatus
 from api.repositories.base import BaseRepository
 from api.schemas.enrichment_tasks import (
     EnrichmentTaskCreate,
     EnrichmentTaskUpdate,
     TaskMetrics,
 )
+from api.schemas.pagination import PageParams
+from api.schemas.stores import JobStoreFilters, JobStoreItem, JobStoreOrder
 
 
 class EnrichmentTaskRepository(BaseRepository):
@@ -62,6 +64,81 @@ class EnrichmentTaskRepository(BaseRepository):
             )
             for task_id, footfall, revenue, size_sqft in result
         ]
+
+    async def list_stores(
+        self,
+        job_id: int,
+        filters: JobStoreFilters,
+        order: JobStoreOrder,
+        page: PageParams,
+    ) -> tuple[list[JobStoreItem], int]:
+        """Return one page of the job's stores, each with its task's status,
+        metrics and error, and its score and tier if scored; plus the total
+        number of stores matching `filters`. Read only.
+
+        Two queries: the page, and the count, both served by the
+        (job_id, status) and (job_id, tier) indexes.
+        """
+        # Labelled with JobStoreItem's field names, so each row maps onto it.
+        columns = (
+            EnrichmentTask.id.label("task_id"),
+            Store.store_id,
+            Store.store_name,
+            Store.address,
+            Store.city,
+            Store.state,
+            EnrichmentTask.status,
+            EnrichmentTask.attempt_count,
+            EnrichmentTask.last_error,
+            EnrichmentTask.estimated_monthly_footfall,
+            EnrichmentTask.estimated_monthly_revenue,
+            EnrichmentTask.store_size_sqft,
+            StoreScore.score,
+            StoreScore.tier,
+            EnrichmentTask.finished_at,
+        )
+        rows = await self.session.execute(
+            self._filtered(select(*columns), job_id, filters)
+            .order_by(*self._ordering(order))
+            .offset(page.offset)
+            .limit(page.page_size)
+        )
+        total = await self.session.scalar(
+            self._filtered(select(func.count()), job_id, filters)
+        )
+        items = [JobStoreItem.model_validate(dict(row._mapping)) for row in rows]
+        return items, total or 0
+
+    @staticmethod
+    def _filtered(query: Select, job_id: int, filters: JobStoreFilters) -> Select:
+        """Join a job's tasks to their stores and (if scored) their scores, and
+        apply `filters`."""
+        query = (
+            query.select_from(EnrichmentTask)
+            .join(Store, Store.id == EnrichmentTask.store_id)
+            .outerjoin(
+                StoreScore,
+                (StoreScore.job_id == EnrichmentTask.job_id)
+                & (StoreScore.task_id == EnrichmentTask.id),
+            )
+            .where(EnrichmentTask.job_id == job_id)
+        )
+        if filters.status is not None:
+            query = query.where(EnrichmentTask.status == filters.status)
+        if filters.tier is not None:
+            query = query.where(StoreScore.tier == filters.tier)
+        return query
+
+    @staticmethod
+    def _ordering(order: JobStoreOrder) -> tuple:
+        """ORDER BY columns for `order`; `store_id` breaks ties."""
+        match order:
+            case JobStoreOrder.SCORE:
+                return (StoreScore.score.desc().nulls_last(), Store.store_id)
+            case JobStoreOrder.RECENTLY_FINISHED:
+                return (EnrichmentTask.finished_at.desc().nulls_last(), Store.store_id)
+            case JobStoreOrder.STORE_ID:
+                return (Store.store_id,)
 
     async def count_by_status(self, job_id: int) -> dict[TaskStatus, int]:
         """Count the job's tasks per status, in one grouped query served by the

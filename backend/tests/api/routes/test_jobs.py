@@ -160,3 +160,179 @@ class TestScoreJobRejections:
         assert response.status_code == 422
         assert "add up to 100, not 110" in response.text
         assert len(tiers_by_store(test_database, finished_job)) == 3
+
+
+class TestListJobs:
+    def test_lists_the_newest_job_first(self, client, finished_job):
+        response = client.get("/api/jobs", params={"page_size": 1})
+
+        body = response.json()
+        assert response.status_code == 200
+        assert [item["job_id"] for item in body["items"]] == [finished_job]
+        assert body["items"][0]["status"] == "completed_with_failures"
+        assert body["items"][0]["total_tasks"] == 4
+        assert set(body) == {"items", "total_count"}
+        assert body["total_count"] >= 1
+
+    def test_rejects_a_page_size_above_the_limit(self, client):
+        response = client.get("/api/jobs", params={"page_size": 201})
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "Invalid request.",
+            "errors": ["query.page_size: Input should be less than or equal to 200"],
+        }
+
+
+class TestGetJob:
+    def test_returns_the_job_with_its_task_counts(self, client, finished_job):
+        response = client.get(f"/api/jobs/{finished_job}")
+
+        body = response.json()
+        assert response.status_code == 200
+        assert body["job_id"] == finished_job
+        assert body["status"] == "completed_with_failures"
+        assert body["total_tasks"] == 4
+        assert body["tasks"] == {
+            "pending": 0,
+            "in_progress": 0,
+            "succeeded": 3,
+            "failed": 1,
+        }
+        assert body["error"] is None
+
+    def test_unknown_job_returns_404(self, client):
+        response = client.get("/api/jobs/999999")
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Job 999999 not found.", "errors": []}
+
+
+class TestGetJobSummary:
+    def test_an_unscored_job_has_no_scoring(self, client, finished_job):
+        body = client.get(f"/api/jobs/{finished_job}/summary").json()
+
+        assert body["tasks"]["succeeded"] == 3
+        assert body["scoring"] is None
+
+    def test_a_scored_job_has_its_latest_scoring(self, client, finished_job):
+        scored = client.post(f"/api/jobs/{finished_job}/scoring", json=CONFIG).json()
+
+        body = client.get(f"/api/jobs/{finished_job}/summary").json()
+
+        assert body["scoring"] == {
+            "scored_at": scored["scored_at"],
+            "config": CONFIG,
+            "tiers": {"large": 1, "medium": 1, "small": 1},
+        }
+
+    def test_unknown_job_returns_404(self, client):
+        assert client.get("/api/jobs/999999/summary").status_code == 404
+
+
+class TestListJobStores:
+    @fixture
+    def scored_job(self, client, finished_job) -> int:
+        client.post(f"/api/jobs/{finished_job}/scoring", json=CONFIG)
+        return finished_job
+
+    @staticmethod
+    def store_ids(response) -> list[str]:
+        return [item["store_id"] for item in response.json()["items"]]
+
+    def test_lists_every_store_by_store_id(self, client, scored_job):
+        response = client.get(f"/api/jobs/{scored_job}/stores")
+
+        assert response.status_code == 200
+        assert self.store_ids(response) == list(STORES)
+        assert response.json()["total_count"] == 4
+
+    def test_a_store_carries_its_metrics_score_and_tier(self, client, scored_job):
+        response = client.get(
+            f"/api/jobs/{scored_job}/stores", params={"tier": "large"}
+        )
+
+        [store] = response.json()["items"]
+        assert store["store_id"] == "ST000001"
+        assert store["status"] == "succeeded"
+        assert store["estimated_monthly_footfall"] == 40000
+        assert store["estimated_monthly_revenue"] == "400000.00"
+        assert store["store_size_sqft"] == 18000
+        assert (store["score"], store["tier"]) == (100, "large")
+        assert store["last_error"] is None
+
+    def test_failed_stores_carry_their_reason(self, client, scored_job):
+        response = client.get(
+            f"/api/jobs/{scored_job}/stores", params={"status": "failed"}
+        )
+
+        [store] = response.json()["items"]
+        assert store["store_id"] == "ST000004"
+        assert store["last_error"] == "upstream error (500)"
+        assert (store["score"], store["tier"]) == (None, None)
+
+    def test_succeeded_stores_come_highest_score_first(self, client, scored_job):
+        response = client.get(
+            f"/api/jobs/{scored_job}/stores", params={"status": "succeeded"}
+        )
+
+        assert self.store_ids(response) == ["ST000001", "ST000002", "ST000003"]
+
+    def test_combines_filters_with_pagination(self, client, scored_job):
+        # Filters and pagination are separate query models; neither may reject
+        # the other's parameters.
+        response = client.get(
+            f"/api/jobs/{scored_job}/stores",
+            params={"status": "succeeded", "page": 2, "page_size": 2},
+        )
+
+        body = response.json()
+        assert response.status_code == 200
+        assert self.store_ids(response) == ["ST000003"]
+        assert body["total_count"] == 3
+
+    def test_unscored_stores_have_no_score_or_tier(self, client, finished_job):
+        response = client.get(f"/api/jobs/{finished_job}/stores")
+
+        assert {(i["score"], i["tier"]) for i in response.json()["items"]} == {
+            (None, None)
+        }
+
+    def test_rejects_an_unknown_tier(self, client, scored_job):
+        response = client.get(f"/api/jobs/{scored_job}/stores", params={"tier": "huge"})
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "Invalid request.",
+            "errors": ["query.tier: Input should be 'large', 'medium' or 'small'"],
+        }
+
+    def test_unknown_job_returns_404(self, client):
+        assert client.get("/api/jobs/999999/stores").status_code == 404
+
+
+class TestValidationErrorFormat:
+    def test_body_errors_use_the_common_error_shape(self, client, finished_job):
+        bad = {
+            **CONFIG,
+            "weights": {"footfall": 50, "revenue": 30, "size_sqft": 30},
+            "tiers": {"large_min": 40, "medium_min": 70},
+        }
+
+        response = client.post(f"/api/jobs/{finished_job}/scoring", json=bad)
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "Invalid request.",
+            "errors": [
+                "body.weights: weights must add up to 100, not 110",
+                "body.tiers: medium_min (70) must not be above large_min (40)",
+            ],
+        }
+
+    def test_path_errors_use_the_common_error_shape(self, client):
+        response = client.get("/api/jobs/abc")
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == "Invalid request."
+        assert response.json()["errors"][0].startswith("path.job_id: ")

@@ -28,3 +28,5 @@ class Job(Base):
     # The settings the job's stores were last scored with (a ScoringConfig);
     # null until the job is first scored. Only the latest is kept.
     scoring_config: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # When the job was last scored; null until then.
+    scored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

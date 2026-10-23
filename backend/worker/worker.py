@@ -28,6 +28,7 @@ from api.exceptions import EnrichmentCallError
 from api.repositories.enrichment_task import EnrichmentTaskRepository
 from api.repositories.job import JobRepository
 from api.repositories.store import StoreRepository
+from api.repositories.store_score import StoreScoreRepository
 from api.schemas.enrichment import EnrichResponse
 from api.schemas.messages import EVENT_VERSION, EnrichmentEvent
 from api.services.jobs import EnrichmentJobService, EnrichmentTaskService
@@ -54,20 +55,22 @@ class EnrichmentWorker:
         config: Config,
         sqs: SQSClient | None = None,
         enrichment: EnrichmentClient | None = None,
-        limiter: TokenBucket | None = None,
+        rate_limiter: TokenBucket | None = None,
     ) -> None:
         """Store the settings and create the rate limiter. Nothing connects
         until run().
 
-        `sqs`, `enrichment` and `limiter` let tests hand in their own; run()
+        `sqs`, `enrichment` and `rate_limiter` let tests hand in their own; run()
         always replaces the two clients with freshly connected ones.
         """
-        self.config = config
-        self.queue_url = config.sqs.enrichment_queue_url
+        self._config = config
+        self._queue_url = config.sqs.enrichment_queue_url
         self._sqs_client = sqs
         self._enrichment_client = enrichment
         # Shared by every handler: caps calls/s for the whole process.
-        self.limiter = limiter or TokenBucket(config.enrichment.rate_per_second)
+        self._rate_limiter = rate_limiter or TokenBucket(
+            config.enrichment.rate_per_second
+        )
         # The running consume loop, kept so stop() can cancel it.
         self._consumer: Task | None = None
 
@@ -79,7 +82,7 @@ class EnrichmentWorker:
         return self._sqs_client
 
     @property
-    def enrichment(self) -> EnrichmentClient:
+    def enrichment_client(self) -> EnrichmentClient:
         """The enrichment API client. Raises if run() hasn't connected one yet."""
         if self._enrichment_client is None:
             raise RuntimeError("Worker has no enrichment client yet; call run() first")
@@ -105,13 +108,13 @@ class EnrichmentWorker:
             # 2. Open the SQS and enrichment clients; both stay open for the whole
             #    block and are closed on the way out, however the block ends.
             async with (
-                SQSClient.connect(self.config) as sqs,
-                EnrichmentClient.connect(self.config) as enrichment,
+                SQSClient.connect(self._config) as sqs,
+                EnrichmentClient.connect(self._config) as enrichment,
             ):
                 self._sqs_client = sqs
                 self._enrichment_client = enrichment
                 # 3. Fail fast on a wrong queue URL instead of polling it forever.
-                await sqs.verify_queue(self.queue_url)
+                await sqs.verify_queue(self._queue_url)
                 # 4. Start the consume loop as a task, so stop() has something
                 #    to cancel, even mid long-poll.
                 self._consumer = create_task(self.consume())
@@ -150,13 +153,13 @@ class EnrichmentWorker:
         the queue's visibility timeout. Only ends when cancelled by stop(), or
         if receiving or deleting raises.
         """
-        concurrency = self.config.enrichment.concurrency
+        concurrency = self._config.enrichment.concurrency
         buffer: Queue[ReceivedMessage] = Queue(maxsize=concurrency)
         self.logger.info(
             "Worker consuming from %s (%d handlers, %g calls/s)",
-            self.queue_url,
+            self._queue_url,
             concurrency,
-            self.limiter.rate,
+            self._rate_limiter.rate,
         )
         # The task group cancels every handler when this loop ends, and ends this
         # loop if a handler crashes.
@@ -168,9 +171,9 @@ class EnrichmentWorker:
                 # Long poll: waits up to `wait_time_seconds` for messages to
                 # arrive, and returns up to `max_messages` (at most 10) at once.
                 messages = await self.sqs.receive_messages(
-                    self.queue_url,
-                    max_messages=self.config.sqs.max_messages,
-                    wait_time_seconds=self.config.sqs.wait_time_seconds,
+                    self._queue_url,
+                    max_messages=self._config.sqs.max_messages,
+                    wait_time_seconds=self._config.sqs.wait_time_seconds,
                 )
                 # Waits while the buffer is full, i.e. every handler is busy.
                 for received in messages:
@@ -199,7 +202,7 @@ class EnrichmentWorker:
             self.logger.error(
                 "Dropping malformed message %s: %s", received.message_id, received.body
             )
-            await self.sqs.delete_message(self.queue_url, received.receipt_handle)
+            await self.sqs.delete_message(self._queue_url, received.receipt_handle)
             return
 
         # 2. Drop events in a format version this worker can't read.
@@ -210,7 +213,7 @@ class EnrichmentWorker:
                 event.version,
                 EVENT_VERSION,
             )
-            await self.sqs.delete_message(self.queue_url, received.receipt_handle)
+            await self.sqs.delete_message(self._queue_url, received.receipt_handle)
             return
 
         # 3. Handle the event. On failure, keep the message for redelivery.
@@ -221,7 +224,7 @@ class EnrichmentWorker:
             return
 
         # 4. Handled: delete it so SQS doesn't deliver it again.
-        await self.sqs.delete_message(self.queue_url, received.receipt_handle)
+        await self.sqs.delete_message(self._queue_url, received.receipt_handle)
 
     async def handle_event(self, event: EnrichmentEvent) -> None:
         """Enrich the event's store: claim, call the API once, record the outcome,
@@ -238,7 +241,7 @@ class EnrichmentWorker:
         #    session is closed again before the slow API call, so a waiting
         #    handler doesn't hold a database connection.
         async with DBSession.context() as session:
-            task = await self.task_service(session).claim(
+            task = await self._task_service(session).claim(
                 payload.task_id, payload.job_id
             )
         if task is None:
@@ -250,27 +253,29 @@ class EnrichmentWorker:
             return
 
         # 2. Wait for a rate-limiter token, shared with every other handler.
-        await self.limiter.acquire()
+        await self._rate_limiter.acquire()
 
         # 3. Call the enrichment API once. Any failure (429, 500, timeout,
         #    connection, bad body) comes back as an EnrichmentCallError.
         result: EnrichResponse | None = None
         reason = ""
         try:
-            result = await self.enrichment.enrich(task.request)
+            result = await self.enrichment_client.enrich(task.request)
         except EnrichmentCallError as e:
             reason = str(e)
 
         async with DBSession.context() as session:
             # 4. Record the outcome: SUCCEEDED with metrics, or FAILED with why.
-            tasks = self.task_service(session)
+            tasks = self._task_service(session)
             if result is not None:
                 await tasks.record_success(task, result)
             else:
                 await tasks.record_failure(task, reason)
 
             # 5. If that was the job's last unfinished task, finish the job.
-            job_status = await self.job_service(session).finish_if_complete(task.job_id)
+            job_status = await self._job_service(session).finish_if_complete(
+                task.job_id
+            )
 
         if result is not None:
             self.logger.info(
@@ -291,21 +296,22 @@ class EnrichmentWorker:
             self.logger.info("Job %s finished: %s", task.job_id, job_status)
 
     @staticmethod
-    def task_service(session: AsyncSession) -> EnrichmentTaskService:
+    def _task_service(session: AsyncSession) -> EnrichmentTaskService:
         """The task service on `session`. The worker isn't a FastAPI app, so it
         builds services and repositories itself."""
         return EnrichmentTaskService(
             EnrichmentTaskRepository(session), StoreRepository(session), session
         )
 
-    def job_service(self, session: AsyncSession) -> EnrichmentJobService:
-        """The job service on `session`, built like task_service()."""
+    def _job_service(self, session: AsyncSession) -> EnrichmentJobService:
+        """The job service on `session`, built like _task_service()."""
         return EnrichmentJobService(
             JobRepository(session),
             EnrichmentTaskRepository(session),
+            StoreScoreRepository(session),
             self.sqs,
             session,
-            self.config,
+            self._config,
         )
 
 

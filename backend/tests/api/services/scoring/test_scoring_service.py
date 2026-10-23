@@ -96,9 +96,9 @@ class TestScoringServiceScoreJob:
 
         job_id, changes = jobs.update.await_args.args
         assert job_id == 7
-        assert changes.model_dump(exclude_unset=True) == {
-            "scoring_config": CONFIG.model_dump(mode="json")
-        }
+        saved = changes.model_dump(exclude_unset=True)
+        assert saved.pop("scored_at") is not None
+        assert saved == {"scoring_config": CONFIG.model_dump(mode="json")}
         session.commit.assert_awaited_once()
 
     async def test_locks_the_job_while_scoring(self, service, jobs):

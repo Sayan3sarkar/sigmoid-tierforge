@@ -170,7 +170,7 @@ class TestEnrichmentWorkerHandleEvent:
     @fixture
     def worker(self, sqs_client, enrichment, limiter):
         return EnrichmentWorker(
-            cfg, sqs=sqs_client, enrichment=enrichment, limiter=limiter
+            cfg, sqs=sqs_client, enrichment=enrichment, rate_limiter=limiter
         )
 
     @staticmethod
@@ -307,7 +307,9 @@ class TestEnrichmentWorkerConsume:
                 )
             }
         )
-        worker = EnrichmentWorker(config, sqs=sqs_client, limiter=TokenBucket(1000))
+        worker = EnrichmentWorker(
+            config, sqs=sqs_client, rate_limiter=TokenBucket(1000)
+        )
         handled: list[str] = []
         in_flight = 0
         peak = 0
@@ -349,10 +351,12 @@ class TestEnrichmentWorkerClients:
 
     def test_accessing_enrichment_before_run_raises(self):
         with raises(RuntimeError, match="call run\\(\\) first"):
-            EnrichmentWorker(cfg).enrichment
+            EnrichmentWorker(cfg).enrichment_client
 
     def test_the_rate_limiter_uses_the_configured_rate(self):
-        assert EnrichmentWorker(cfg).limiter.rate == cfg.enrichment.rate_per_second
+        assert (
+            EnrichmentWorker(cfg)._rate_limiter.rate == cfg.enrichment.rate_per_second
+        )
 
 
 class TestEnrichmentWorkerStartup:

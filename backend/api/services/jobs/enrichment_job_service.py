@@ -9,35 +9,52 @@ from fastapi import Depends
 
 from api.dependencies.aws.sqs import SQSClientDep
 from api.dependencies.db_session import DbSessionDep
+from api.exceptions import JobNotFoundError
 from api.models import Job, JobStatus, TaskStatus
 from api.repositories.enrichment_task import EnrichmentTaskRepositoryDep
 from api.repositories.job import JobRepositoryDep
+from api.repositories.store_score import StoreScoreRepositoryDep
 from api.schemas.enrichment_tasks import EnrichmentTaskCreate
-from api.schemas.jobs import JobCreate, JobUpdate
+from api.schemas.jobs import (
+    JobCreate,
+    JobListItem,
+    JobResponse,
+    JobSummary,
+    JobUpdate,
+    ScoringSummary,
+    TaskCounts,
+)
 from api.schemas.messages import EnrichmentEvent, EnrichStorePayload
+from api.schemas.pagination import Page, PageParams
+from api.schemas.scoring import ScoringConfig, TierCounts
+from api.schemas.stores import JobStoreFilters, JobStoreItem, JobStoreOrder
 from config import ConfigDep
 
 logger = getLogger(__name__)
 
 
 class EnrichmentJobService:
-    """Creates an enrichment job for an upload, queues one event per store, and
-    finishes the job once all its tasks are done.
+    """Enrichment jobs: creates one for an upload, queues one event per store,
+    finishes it once all its tasks are done, and reads jobs back (the job list,
+    a job's progress and summary, and its stores).
 
     The API uses it through FastAPI dependencies; the worker builds it itself.
+    The read methods never write or commit.
     """
 
     def __init__(
         self,
-        jobs: JobRepositoryDep,
-        tasks: EnrichmentTaskRepositoryDep,
-        sqs: SQSClientDep,
+        jobs_repository: JobRepositoryDep,
+        enrichment_tasks_repository: EnrichmentTaskRepositoryDep,
+        scores_repository: StoreScoreRepositoryDep,
+        sqs_client: SQSClientDep,
         session: DbSessionDep,
         config: ConfigDep,
     ) -> None:
-        self._jobs = jobs
-        self._tasks = tasks
-        self._sqs_client = sqs
+        self._jobs_repository = jobs_repository
+        self._enrichment_tasks_repository = enrichment_tasks_repository
+        self._scores_repository = scores_repository
+        self._sqs_client = sqs_client
         self._session = session
         self._queue_url = config.sqs.enrichment_queue_url
         self._send_concurrency = config.sqs.send_concurrency
@@ -47,14 +64,14 @@ class EnrichmentJobService:
     ) -> tuple[Job, list[int]]:
         """Add a PENDING job and one PENDING task per store. Doesn't commit: the
         caller commits it together with the stores, before calling dispatch()."""
-        job = await self._jobs.create(
+        job = await self._jobs_repository.create(
             JobCreate(
                 upload_id=upload_id,
                 total_tasks=len(store_ids),
                 status=JobStatus.PENDING,
             )
         )
-        task_ids = await self._tasks.bulk_create(
+        task_ids = await self._enrichment_tasks_repository.bulk_create(
             [
                 EnrichmentTaskCreate(
                     job_id=job.id, store_id=store_id, status=TaskStatus.PENDING
@@ -82,7 +99,7 @@ class EnrichmentJobService:
             )
         except Exception as e:
             logger.exception("Could not send events for job %s", job_id)
-            await self._jobs.update(
+            await self._jobs_repository.update(
                 job_id,
                 JobUpdate(
                     status=JobStatus.FAILED,
@@ -93,7 +110,7 @@ class EnrichmentJobService:
             await self._session.commit()
             raise
 
-        await self._jobs.update(
+        await self._jobs_repository.update(
             job_id,
             JobUpdate(status=JobStatus.RUNNING, started_at=datetime.now(UTC)),
         )
@@ -119,7 +136,7 @@ class EnrichmentJobService:
         task finished, and the guarded update lets only one of them finish the
         job.
         """
-        counts = await self._tasks.count_by_status(job_id)
+        counts = await self._enrichment_tasks_repository.count_by_status(job_id)
         if counts.get(TaskStatus.PENDING, 0) or counts.get(TaskStatus.IN_PROGRESS, 0):
             return None
 
@@ -128,13 +145,109 @@ class EnrichmentJobService:
             if counts.get(TaskStatus.FAILED, 0)
             else JobStatus.COMPLETED
         )
-        finished = await self._jobs.update_if_status(
+        finished = await self._jobs_repository.update_if_status(
             job_id,
             expected=JobStatus.RUNNING,
             changes=JobUpdate(status=status, finished_at=datetime.now(UTC)),
         )
         await self._session.commit()
         return status if finished else None
+
+    async def list_jobs(self, page: PageParams) -> Page[JobListItem]:
+        """One page of jobs, newest first."""
+        jobs, total = await self._jobs_repository.list_recent(page)
+        items = [
+            JobListItem(
+                job_id=job.id,
+                upload_id=job.upload_id,
+                status=job.status,
+                total_tasks=job.total_tasks,
+                created_at=job.created_at,
+                finished_at=job.finished_at,
+            )
+            for job in jobs
+        ]
+        return Page(items=items, total_count=total)
+
+    async def get_job(self, job_id: int) -> JobResponse:
+        """The job with its task counts per status (progress).
+
+        Raises JobNotFoundError (404) if there's no such job.
+        """
+        job = await self._get_job(job_id)
+        return JobResponse(
+            job_id=job.id,
+            upload_id=job.upload_id,
+            status=job.status,
+            error=job.error,
+            total_tasks=job.total_tasks,
+            tasks=await self._task_counts(job_id),
+            created_at=job.created_at,
+            started_at=job.started_at,
+            finished_at=job.finished_at,
+        )
+
+    async def get_summary(self, job_id: int) -> JobSummary:
+        """Task counts per status, plus the latest scoring (when, with which
+        settings, and the tier counts), or null if the job isn't scored yet.
+
+        Raises JobNotFoundError (404) if there's no such job.
+        """
+        job = await self._get_job(job_id)
+        scoring = None
+        if job.scoring_config is not None and job.scored_at is not None:
+            tier_counts = await self._scores_repository.count_by_tier(job_id)
+            scoring = ScoringSummary(
+                scored_at=job.scored_at,
+                config=ScoringConfig.model_validate(job.scoring_config),
+                tiers=TierCounts(
+                    **{tier.value: count for tier, count in tier_counts.items()}
+                ),
+            )
+        return JobSummary(
+            job_id=job.id,
+            status=job.status,
+            total_tasks=job.total_tasks,
+            tasks=await self._task_counts(job_id),
+            scoring=scoring,
+        )
+
+    async def list_stores(
+        self, job_id: int, filters: JobStoreFilters, page: PageParams
+    ) -> Page[JobStoreItem]:
+        """One page of the job's stores, filtered by status and/or tier.
+
+        Ordered by what the filter is about: highest score first when filtering
+        by tier or SUCCEEDED; most recently finished first when filtering by
+        FAILED; otherwise by store_id. Raises JobNotFoundError (404) if there's
+        no such job.
+        """
+        await self._get_job(job_id)
+        items, total = await self._enrichment_tasks_repository.list_stores(
+            job_id, filters, self._store_order_for(filters), page
+        )
+        return Page(items=items, total_count=total)
+
+    @staticmethod
+    def _store_order_for(filters: JobStoreFilters) -> JobStoreOrder:
+        """The most useful order for what the filters select."""
+        if filters.tier is not None or filters.status == TaskStatus.SUCCEEDED:
+            return JobStoreOrder.SCORE
+        if filters.status == TaskStatus.FAILED:
+            return JobStoreOrder.RECENTLY_FINISHED
+        return JobStoreOrder.STORE_ID
+
+    async def _get_job(self, job_id: int) -> Job:
+        """The job, or JobNotFoundError (404)."""
+        job = await self._jobs_repository.get(job_id)
+        if job is None:
+            raise JobNotFoundError(f"Job {job_id} not found.")
+        return job
+
+    async def _task_counts(self, job_id: int) -> TaskCounts:
+        """The job's task counts, with 0 for statuses that have no tasks."""
+        counts = await self._enrichment_tasks_repository.count_by_status(job_id)
+        return TaskCounts(**{status.value: count for status, count in counts.items()})
 
 
 EnrichmentJobServiceDep = Annotated[EnrichmentJobService, Depends()]
