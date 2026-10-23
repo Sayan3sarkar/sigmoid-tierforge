@@ -10,14 +10,15 @@ What the system must do: [REQUIREMENTS.md](REQUIREMENTS.md)
 sigmoid-tierforge/
 ├── backend/                     Python backend (Poetry project)
 │   ├── api/                     FastAPI app
-│   │   ├── main.py              App factory + lifespan (DB engine, SQS client)
+│   │   ├── main.py              App factory + lifespan (DB engine)
 │   │   ├── routes/              HTTP routes, all under /api
 │   │   ├── services/            Business logic, injected as FastAPI dependencies
 │   │   ├── repositories/        DB access, injected as FastAPI dependencies
 │   │   ├── models/              SQLAlchemy models (shared with the worker)
 │   │   ├── schemas/             Pydantic request/response and message schemas
-│   │   ├── dependencies/        DB session and SQS dependencies
-│   │   └── aws/sqs.py           Async SQS client (aiobotocore)
+│   │   └── dependencies/        Shared resources injected into routes:
+│   │       ├── db_session.py    DB engine (created once) and per-request session
+│   │       └── aws/sqs.py       Shared async SQS client (aiobotocore)
 │   ├── worker/worker.py         SQS consumer
 │   ├── config/                  Config class (pydantic-settings, reads .env)
 │   ├── migrations/              Alembic migrations
@@ -115,3 +116,5 @@ The app never creates queues; it only connects to an existing one through `SQS_E
 
 - **Locally:** `poe localstack_init` creates the queue in LocalStack, named after the last part of that URL (plus a `-dlq` dead-letter queue). `000000000000` in the URL is LocalStack's default account ID.
 - **In AWS:** the queue is provisioned with Terraform. Set `SQS_ENRICHMENT_QUEUE_URL` to its URL and leave `AWS_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` unset, so the client uses the real AWS endpoint and the IAM role.
+- **Startup check:** the worker verifies the queue on startup with a read-only `GetQueueAttributes` call and refuses to start if it's unreachable. The API doesn't check at startup, so uploads, the dashboard and health keep working even if SQS is down.
+- **IAM:** the worker's Terraform IAM policy needs `sqs:GetQueueAttributes`, `sqs:ReceiveMessage` and `sqs:DeleteMessage` on the queue; the API's needs `sqs:SendMessage` (from phase 2, when it starts sending jobs).

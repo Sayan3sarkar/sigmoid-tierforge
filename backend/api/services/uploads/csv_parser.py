@@ -83,8 +83,8 @@ class StoreCsvParser:
                 continue  # blank line
             if len(values) != column_count:
                 errors.append(
-                    f"Row {row_number}: expected {column_count} values, "
-                    f"found {len(values)}"
+                    f"Row {row_number}: expected {column_count} values,"
+                    f" found {len(values)}"
                 )
                 continue
 

@@ -2,7 +2,7 @@ from pytest import fixture, raises
 
 from api.exceptions import InvalidUploadError
 from api.schemas.stores import StoreRow
-from api.services.uploads import StoreCsvParser
+from api.services.uploads.csv_parser import StoreCsvParser
 
 HEADER = "store_id,store_name,address,city,state,country"
 ROW_1 = "ST000001,Fresh Supermarket #1,71 Church Street,New Delhi,Delhi,India"
@@ -23,20 +23,20 @@ class TestStoreCsvParserValidFiles:
 
         assert rows == [
             StoreRow(
-                "ST000001",
-                "Fresh Supermarket #1",
-                "71 Church Street",
-                "New Delhi",
-                "Delhi",
-                "India",
+                store_id="ST000001",
+                store_name="Fresh Supermarket #1",
+                address="71 Church Street",
+                city="New Delhi",
+                state="Delhi",
+                country="India",
             ),
             StoreRow(
-                "ST000002",
-                "City Pharmacy #2",
-                "27 Hill Street",
-                "New Delhi",
-                "Delhi",
-                "India",
+                store_id="ST000002",
+                store_name="City Pharmacy #2",
+                address="27 Hill Street",
+                city="New Delhi",
+                state="Delhi",
+                country="India",
             ),
         ]
 

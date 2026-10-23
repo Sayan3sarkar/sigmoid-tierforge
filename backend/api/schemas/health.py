@@ -1,12 +1,12 @@
-from enum import StrEnum
+from enum import StrEnum, auto
 from typing import Any
 
 from pydantic import BaseModel
 
 
 class HealthStatus(StrEnum):
-    OK = "ok"
-    ERROR = "error"
+    OK = auto()
+    ERROR = auto()
 
 
 class CheckResult(BaseModel):

@@ -1,9 +1,10 @@
-from dataclasses import dataclass
+from pydantic import BaseModel, ConfigDict
 
 
-@dataclass(frozen=True, slots=True)
-class StoreRow:
+class StoreRow(BaseModel):
     """One validated store from an uploaded CSV, before it is saved."""
+
+    model_config = ConfigDict(frozen=True)
 
     store_id: str
     store_name: str

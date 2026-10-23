@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -12,7 +13,7 @@ TEST_DATABASE = TemporaryDatabase.use_for_tests()
 from fastapi.testclient import TestClient  # noqa: E402
 from pytest import fixture  # noqa: E402
 
-from api.aws.sqs import SQSQueue  # noqa: E402
+from api.dependencies.aws.sqs import SQSClient  # noqa: E402
 from api.main import create_app  # noqa: E402
 
 
@@ -26,18 +27,28 @@ def test_database():
 
 
 @fixture
-def sqs_queue(mocker):
-    """A mocked SQSQueue, also returned by SQSQueue.create (no LocalStack needed)."""
-    queue = mocker.AsyncMock(spec=SQSQueue)
-    queue.queue_url = "http://localhost:4566/000000000000/tierforge-enrichment-test"
-    mocker.patch.object(
-        SQSQueue, "create", new_callable=mocker.AsyncMock, return_value=queue
-    )
-    return queue
+def sqs_client(mocker):
+    """A mocked SQSClient handed out by SQSClient.connect() (no LocalStack needed).
+
+    The fake connect() behaves like the real one: the client is the shared
+    instance inside the block and is cleared on the way out.
+    """
+    client = mocker.AsyncMock(spec=SQSClient)
+
+    @asynccontextmanager
+    async def connect(cfg):
+        SQSClient._instance = client
+        try:
+            yield client
+        finally:
+            SQSClient._instance = None
+
+    mocker.patch.object(SQSClient, "connect", side_effect=connect)
+    return client
 
 
 @fixture
-def app(sqs_queue, test_database):
+def app(test_database):
     application = create_app()
     yield application
     application.dependency_overrides.clear()

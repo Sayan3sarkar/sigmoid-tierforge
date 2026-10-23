@@ -1,5 +1,4 @@
 from collections.abc import Sequence
-from dataclasses import asdict
 from typing import Annotated
 from uuid import UUID
 
@@ -15,7 +14,8 @@ class StoreRepository(BaseRepository):
     async def bulk_create(self, upload_id: UUID, rows: Sequence[StoreRow]) -> int:
         """Insert all rows of one upload in a single batched statement."""
         await self.session.execute(
-            insert(Store), [{"upload_id": upload_id, **asdict(row)} for row in rows]
+            insert(Store),
+            [{"upload_id": upload_id, **row.model_dump()} for row in rows],
         )
         return len(rows)
 

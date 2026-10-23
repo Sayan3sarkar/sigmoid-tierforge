@@ -6,7 +6,7 @@ from pytest import fixture, mark
 from config import get_config
 from config.settings import UploadConfig
 
-SAMPLE_CSV = Path(__file__).resolve().parents[2] / "stores_5000.csv"
+SAMPLE_CSV = Path(__file__).resolve().parents[4] / "stores_5000.csv"  # repo root
 HEADER = "store_id,store_name,address,city,state,country"
 ROW_1 = "ST000001,Fresh Supermarket #1,71 Church Street,New Delhi,Delhi,India"
 ROW_2 = "ST000002,City Pharmacy #2,27 Hill Street,New Delhi,Delhi,India"

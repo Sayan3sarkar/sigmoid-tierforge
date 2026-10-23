@@ -29,13 +29,24 @@ class UploadTooLargeError(AppError):
     status_code = 413
 
 
-async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
-    logger.info(
-        "%s %s -> %s: %s", request.method, request.url.path, exc.status_code, exc.detail
-    )
-    body = ErrorResponse(detail=exc.detail, errors=exc.errors)
-    return JSONResponse(status_code=exc.status_code, content=body.model_dump())
+class SQSQueueUnavailableError(RuntimeError):
+    """The configured SQS queue can't be reached (wrong URL, missing queue, no access).
+
+    Raised at worker startup; not an AppError, since it never reaches an API client.
+    """
 
 
 def register_exception_handlers(app: FastAPI) -> None:
-    app.add_exception_handler(AppError, handle_app_error)
+    # The decorator (unlike app.add_exception_handler) accepts a handler typed for
+    # the specific exception, so `exc: AppError` type-checks without casts.
+    @app.exception_handler(AppError)
+    async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
+        logger.info(
+            "%s %s -> %s: %s",
+            request.method,
+            request.url.path,
+            exc.status_code,
+            exc.detail,
+        )
+        body = ErrorResponse(detail=exc.detail, errors=exc.errors)
+        return JSONResponse(status_code=exc.status_code, content=body.model_dump())

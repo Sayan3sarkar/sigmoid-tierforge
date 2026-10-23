@@ -8,11 +8,10 @@ from asyncio import CancelledError, Task, create_task, get_running_loop
 from asyncio import run as asyncio_run
 from logging import getLogger
 from signal import SIGINT, SIGTERM
-from typing import Any
 
 from pydantic import ValidationError
 
-from api.aws.sqs import SQSQueue
+from api.dependencies.aws.sqs import ReceivedMessage, SQSClient
 from api.dependencies.db_session import DBSession
 from api.schemas.messages import EnrichmentMessage
 from config import Config, cfg, configure_logging
@@ -21,16 +20,17 @@ from config import Config, cfg, configure_logging
 class EnrichmentWorker:
     logger = getLogger("worker")
 
-    def __init__(self, config: Config, queue: SQSQueue | None = None) -> None:
+    def __init__(self, config: Config, sqs: SQSClient | None = None) -> None:
         self.config = config
-        self._queue = queue
+        self.queue_url = config.sqs.enrichment_queue_url
+        self._sqs = sqs
         self._consumer: Task | None = None
 
     @property
-    def queue(self) -> SQSQueue:
-        if self._queue is None:
-            raise RuntimeError("Worker has no SQS queue yet; call run() first")
-        return self._queue
+    def sqs(self) -> SQSClient:
+        if self._sqs is None:
+            raise RuntimeError("Worker has no SQS client yet; call run() first")
+        return self._sqs
 
     @classmethod
     def main(cls) -> None:
@@ -39,20 +39,23 @@ class EnrichmentWorker:
         asyncio_run(cls(cfg).run())
 
     async def run(self) -> None:
-        DBSession.create()
-        self._queue = await SQSQueue.create(self.config)
-        self._consumer = create_task(self.consume())
-
-        loop = get_running_loop()
-        for sig in (SIGINT, SIGTERM):
-            loop.add_signal_handler(sig, self.stop)
-
         try:
-            await self._consumer
+            DBSession.create()
+            # The SQS client is open for the whole block and closed on the way out.
+            async with SQSClient.connect(self.config) as sqs:
+                self._sqs = sqs
+                # Fail fast on a wrong queue URL instead of polling it forever.
+                await sqs.verify_queue(self.queue_url)
+                self._consumer = create_task(self.consume())
+
+                loop = get_running_loop()
+                for sig in (SIGINT, SIGTERM):
+                    loop.add_signal_handler(sig, self.stop)
+
+                await self._consumer
         except CancelledError:
             self.logger.info("Worker stopping")
         finally:
-            await self.queue.close()
             await DBSession.close()
 
     def stop(self) -> None:
@@ -60,12 +63,17 @@ class EnrichmentWorker:
             self._consumer.cancel()
 
     async def consume(self) -> None:
-        self.logger.info("Worker consuming from %s", self.queue.queue_url)
+        self.logger.info("Worker consuming from %s", self.queue_url)
         while True:
-            for raw in await self.queue.receive_messages():
-                await self.process_message(raw)
+            messages = await self.sqs.receive_messages(
+                self.queue_url,
+                max_messages=self.config.sqs.max_messages,
+                wait_time_seconds=self.config.sqs.wait_time_seconds,
+            )
+            for received in messages:
+                await self.process_message(received)
 
-    async def process_message(self, raw: dict[str, Any]) -> None:
+    async def process_message(self, received: ReceivedMessage) -> None:
         """Parse, handle and delete one message.
 
         A malformed message is deleted, since retrying it can never succeed.
@@ -73,21 +81,21 @@ class EnrichmentWorker:
         the visibility timeout (and moves it to the dead-letter queue eventually).
         """
         try:
-            message = EnrichmentMessage.model_validate_json(raw["Body"])
+            message = EnrichmentMessage.model_validate_json(received.body)
         except ValidationError:
             self.logger.error(
-                "Dropping malformed message %s: %s", raw["MessageId"], raw["Body"]
+                "Dropping malformed message %s: %s", received.message_id, received.body
             )
-            await self.queue.delete_message(raw["ReceiptHandle"])
+            await self.sqs.delete_message(self.queue_url, received.receipt_handle)
             return
 
         try:
             await self.handle_message(message)
         except Exception:
-            self.logger.exception("Failed to handle message %s", raw["MessageId"])
+            self.logger.exception("Failed to handle message %s", received.message_id)
             return
 
-        await self.queue.delete_message(raw["ReceiptHandle"])
+        await self.sqs.delete_message(self.queue_url, received.receipt_handle)
 
     async def handle_message(self, message: EnrichmentMessage) -> None:
         """Enrich one store. Not implemented yet: only logs the message."""
