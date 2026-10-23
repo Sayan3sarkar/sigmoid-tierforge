@@ -18,8 +18,9 @@ from api.main import create_app  # noqa: E402
 
 @fixture(scope="session")
 def test_database():
-    """Creates the run's temporary database once, and drops it at the end."""
+    """Creates and migrates the run's temporary database once; drops it at the end."""
     TEST_DATABASE.create()
+    TEST_DATABASE.migrate()
     yield TEST_DATABASE
     TEST_DATABASE.drop()
 

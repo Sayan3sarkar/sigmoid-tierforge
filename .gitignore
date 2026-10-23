@@ -1,5 +1,6 @@
 **/.env
 **/enrichment_simulator
+.vscode
 
 # Python
 **/__pycache__/

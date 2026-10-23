@@ -1,7 +1,7 @@
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from logging import getLogger
-from typing import Annotated
+from typing import Annotated, TypeAlias
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import (
@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from api.exceptions import AppError
 from config import cfg
 
 logger = getLogger(__name__)
@@ -44,6 +45,10 @@ class DBSession:
             try:
                 yield session
                 await session.commit()
+            except AppError:
+                # Expected client error (e.g. a rejected upload): undo, no traceback.
+                await session.rollback()
+                raise
             except Exception as e:
                 logger.warning("Exception on query", exc_info=e)
                 await session.rollback()
@@ -57,4 +62,4 @@ class DBSession:
             cls.session_maker = None
 
 
-DbSessionDep = Annotated[AsyncSession, Depends(DBSession.session)]
+DbSessionDep: TypeAlias = Annotated[AsyncSession, Depends(DBSession.session)]

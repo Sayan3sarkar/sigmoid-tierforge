@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from api.aws.sqs import SQSQueue
 from api.dependencies.db_session import DBSession
+from api.exceptions import register_exception_handlers
 from api.routes import api_router
 from config import cfg, configure_logging
 
@@ -30,6 +31,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     app = FastAPI(title=cfg.app_name, lifespan=lifespan)
+    register_exception_handlers(app)
     app.include_router(api_router)
     return app
 

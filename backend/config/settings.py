@@ -53,6 +53,10 @@ class HealthConfig(BaseSettingsConfig, env_prefix="health_"):
     postgres_timeout_seconds: float = 2.0
 
 
+class UploadConfig(BaseSettingsConfig, env_prefix="upload_"):
+    max_size_bytes: int = 10 * 1024 * 1024
+
+
 class Config(BaseSettingsConfig):
     log_level: str = "INFO"
     db: DBConfig = Field(default_factory=DBConfig)
@@ -60,6 +64,7 @@ class Config(BaseSettingsConfig):
     sqs: SQSConfig = Field(default_factory=SQSConfig)
     enrichment: EnrichmentConfig = Field(default_factory=EnrichmentConfig)
     health: HealthConfig = Field(default_factory=HealthConfig)
+    upload: UploadConfig = Field(default_factory=UploadConfig)
 
 
 cfg = Config()

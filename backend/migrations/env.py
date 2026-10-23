@@ -16,7 +16,10 @@ config.set_main_option("sqlalchemy.url", cfg.db.async_url)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
-if config.config_file_name is not None:
+# Skipped when run from the test suite, which keeps its own logging setup.
+if config.config_file_name is not None and config.attributes.get(
+    "configure_logger", True
+):
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
