@@ -1,0 +1,40 @@
+# App, test and code-quality tasks. Included from pyproject.toml ([tool.poe] include).
+
+[tool.poe.tasks.api]
+help = "Run the FastAPI server with auto-reload"
+cmd = "uvicorn api.main:app --reload --host ${API_HOST} --port ${API_PORT}"
+env = { API_HOST.default = "127.0.0.1", API_PORT.default = "8001" }
+
+[tool.poe.tasks.worker]
+help = "Run the SQS enrichment worker"
+cmd = "python -m worker.worker"
+
+[tool.poe.tasks.simulator]
+help = "Run the provided enrichment simulator from ../enrichment_simulator"
+cmd = "uvicorn main:app --app-dir ../enrichment_simulator --port ${SIMULATOR_PORT}"
+env = { SIMULATOR_PORT.default = "8000", PYTHONDONTWRITEBYTECODE = "1" }
+
+[tool.poe.tasks.localstack_init]
+help = "Create the SQS queue and dead-letter queue in LocalStack"
+cmd = "bash scripts/localstack-init.sh"
+
+[tool.poe.tasks.setup]
+help = "One-time local setup: create the database, run migrations, create SQS queues"
+sequence = ["db_create", "db_upgrade", "localstack_init"]
+
+[tool.poe.tasks.test]
+help = "Run the test suite (settings from tests/.test.env)"
+cmd = "pytest"
+
+[tool.poe.tasks.format]
+help = "Sort imports (isort) and format code (black)"
+sequence = [{ cmd = "isort ." }, { cmd = "black ." }]
+
+[tool.poe.tasks.check]
+help = "Lint (flake8) and check formatting without changing files (isort, black)"
+sequence = [
+  { cmd = "flake8 ." },
+  { cmd = "isort --check-only --diff ." },
+  { cmd = "black --check --diff ." },
+]
+ignore_fail = "return_non_zero"

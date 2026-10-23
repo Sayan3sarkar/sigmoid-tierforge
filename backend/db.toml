@@ -1,0 +1,27 @@
+# Database and migration tasks. Included from pyproject.toml ([tool.poe] include).
+
+[tool.poe.tasks.db_create]
+help = "Create the database named in DATABASE_URL if it doesn't exist"
+cmd = "python -m scripts.db_create"
+
+[tool.poe.tasks.db_create_migration]
+help = "Autogenerate a migration from the models: poe db_create_migration -m \"message\""
+cmd = "alembic revision --autogenerate"
+
+[tool.poe.tasks.db_upgrade]
+help = "Apply migrations (default: up to head), e.g. poe db_upgrade +1"
+cmd = "alembic upgrade ${revision}"
+args = [{ name = "revision", positional = true, default = "head" }]
+
+[tool.poe.tasks.db_downgrade]
+help = "Roll back migrations (default: one step), e.g. poe db_downgrade base"
+cmd = "alembic downgrade ${revision}"
+args = [{ name = "revision", positional = true, default = "-1" }]
+
+[tool.poe.tasks.db_current]
+help = "Show the current migration revision"
+cmd = "alembic current"
+
+[tool.poe.tasks.db_history]
+help = "List all migrations"
+cmd = "alembic history --verbose"

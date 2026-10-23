@@ -1,0 +1,368 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2822
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\froman\fcharset0 Times-Bold;\f1\froman\fcharset0 Times-Roman;\f2\froman\fcharset0 Times-Italic;
+\f3\fmodern\fcharset0 Courier;}
+{\colortbl;\red255\green255\blue255;\red0\green0\blue0;}
+{\*\expandedcolortbl;;\cssrgb\c0\c0\c0;}
+{\*\listtable{\list\listtemplateid1\listhybrid{\listlevel\levelnfc23\levelnfcn23\leveljc0\leveljcn0\levelfollow0\levelstartat1\levelspace360\levelindent0{\*\levelmarker \{disc\}}{\leveltext\leveltemplateid1\'01\uc0\u8226 ;}{\levelnumbers;}\fi-360\li720\lin720 }{\listname ;}\listid1}
+{\list\listtemplateid2\listhybrid{\listlevel\levelnfc23\levelnfcn23\leveljc0\leveljcn0\levelfollow0\levelstartat1\levelspace360\levelindent0{\*\levelmarker \{disc\}}{\leveltext\leveltemplateid101\'01\uc0\u8226 ;}{\levelnumbers;}\fi-360\li720\lin720 }{\listname ;}\listid2}
+{\list\listtemplateid3\listhybrid{\listlevel\levelnfc23\levelnfcn23\leveljc0\leveljcn0\levelfollow0\levelstartat1\levelspace360\levelindent0{\*\levelmarker \{disc\}}{\leveltext\leveltemplateid201\'01\uc0\u8226 ;}{\levelnumbers;}\fi-360\li720\lin720 }{\listname ;}\listid3}
+{\list\listtemplateid4\listhybrid{\listlevel\levelnfc23\levelnfcn23\leveljc0\leveljcn0\levelfollow0\levelstartat1\levelspace360\levelindent0{\*\levelmarker \{disc\}}{\leveltext\leveltemplateid301\'01\uc0\u8226 ;}{\levelnumbers;}\fi-360\li720\lin720 }{\listname ;}\listid4}
+{\list\listtemplateid5\listhybrid{\listlevel\levelnfc23\levelnfcn23\leveljc0\leveljcn0\levelfollow0\levelstartat1\levelspace360\levelindent0{\*\levelmarker \{disc\}}{\leveltext\leveltemplateid401\'01\uc0\u8226 ;}{\levelnumbers;}\fi-360\li720\lin720 }{\listlevel\levelnfc23\levelnfcn23\leveljc0\leveljcn0\levelfollow0\levelstartat1\levelspace360\levelindent0{\*\levelmarker \{circle\}}{\leveltext\leveltemplateid402\'01\uc0\u9702 ;}{\levelnumbers;}\fi-360\li1440\lin1440 }{\listname ;}\listid5}
+{\list\listtemplateid6\listhybrid{\listlevel\levelnfc23\levelnfcn23\leveljc0\leveljcn0\levelfollow0\levelstartat1\levelspace360\levelindent0{\*\levelmarker \{disc\}}{\leveltext\leveltemplateid501\'01\uc0\u8226 ;}{\levelnumbers;}\fi-360\li720\lin720 }{\listname ;}\listid6}
+{\list\listtemplateid7\listhybrid{\listlevel\levelnfc23\levelnfcn23\leveljc0\leveljcn0\levelfollow0\levelstartat1\levelspace360\levelindent0{\*\levelmarker \{disc\}}{\leveltext\leveltemplateid601\'01\uc0\u8226 ;}{\levelnumbers;}\fi-360\li720\lin720 }{\listlevel\levelnfc23\levelnfcn23\leveljc0\leveljcn0\levelfollow0\levelstartat1\levelspace360\levelindent0{\*\levelmarker \{circle\}}{\leveltext\leveltemplateid602\'01\uc0\u9702 ;}{\levelnumbers;}\fi-360\li1440\lin1440 }{\listname ;}\listid7}
+{\list\listtemplateid8\listhybrid{\listlevel\levelnfc23\levelnfcn23\leveljc0\leveljcn0\levelfollow0\levelstartat1\levelspace360\levelindent0{\*\levelmarker \{disc\}}{\leveltext\leveltemplateid701\'01\uc0\u8226 ;}{\levelnumbers;}\fi-360\li720\lin720 }{\listname ;}\listid8}
+{\list\listtemplateid9\listhybrid{\listlevel\levelnfc23\levelnfcn23\leveljc0\leveljcn0\levelfollow0\levelstartat1\levelspace360\levelindent0{\*\levelmarker \{disc\}}{\leveltext\leveltemplateid801\'01\uc0\u8226 ;}{\levelnumbers;}\fi-360\li720\lin720 }{\listname ;}\listid9}
+{\list\listtemplateid10\listhybrid{\listlevel\levelnfc23\levelnfcn23\leveljc0\leveljcn0\levelfollow0\levelstartat1\levelspace360\levelindent0{\*\levelmarker \{disc\}}{\leveltext\leveltemplateid901\'01\uc0\u8226 ;}{\levelnumbers;}\fi-360\li720\lin720 }{\listname ;}\listid10}}
+{\*\listoverridetable{\listoverride\listid1\listoverridecount0\ls1}{\listoverride\listid2\listoverridecount0\ls2}{\listoverride\listid3\listoverridecount0\ls3}{\listoverride\listid4\listoverridecount0\ls4}{\listoverride\listid5\listoverridecount0\ls5}{\listoverride\listid6\listoverridecount0\ls6}{\listoverride\listid7\listoverridecount0\ls7}{\listoverride\listid8\listoverridecount0\ls8}{\listoverride\listid9\listoverridecount0\ls9}{\listoverride\listid10\listoverridecount0\ls10}}
+\deftab720
+\pard\pardeftab720\sa321\partightenfactor0
+
+\f0\b\fs48 \cf0 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Take-Home Exercise \'97 Tech Lead Hiring\
+\pard\pardeftab720\sa298\partightenfactor0
+
+\fs36 \cf0 TierForge: Resilient Bulk Store Scoring & Tiering\
+\pard\pardeftab720\sa280\partightenfactor0
+
+\fs28 \cf0 1. Context\
+\pard\pardeftab720\sa240\partightenfactor0
+
+\f1\b0\fs24 \cf0 You're building 
+\f0\b TierForge
+\f1\b0 , a service that ingests a large list of stores, enriches each one with a few business metrics via a slow, rate-limited, and occasionally unreliable API, then scores and tiers every store (Large / Medium / Small) based on user-configurable weights.\
+That enrichment API is one we provide and candidates run entirely on their own machine \'97 no internet access, account signup, or API key involved. It's built to 
+\f2\i behave
+\f1\i0  like a flaky third-party dependency (latency, rate limits, random failures) purely so the resilience problem is real, not to require any actual external integration.\
+The interesting part isn't the enrichment metrics themselves (we've synthesized those) \'97 it's building a job engine that reliably processes thousands of records against a flaky external dependency, and a scoring layer that stays fast and re-runnable independent of that slow ingestion.\
+\pard\pardeftab720\sa280\partightenfactor0
+
+\f0\b\fs28 \cf0 2. What We're Evaluating\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\partightenfactor0
+\ls1\ilvl0
+\fs24 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Architecture
+\f1\b0  \'97 how cleanly the slow, unreliable enrichment step is separated from the fast, deterministic scoring/tiering step.\
+\ls1\ilvl0
+\f0\b \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Resilience
+\f1\b0  \'97 how the system behaves under the failure modes described in Section 5 (timeouts, transient errors, a worker going silent, a systemically broken run).\
+\ls1\ilvl0
+\f0\b \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Concurrency correctness
+\f1\b0  \'97 safe parallel processing without lost or duplicated work.\
+\ls1\ilvl0
+\f0\b \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Code quality
+\f1\b0  \'97 readability, naming, error handling, consistency.\
+\ls1\ilvl0
+\f0\b \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Data modeling
+\f1\b0  \'97 how jobs, chunks/units of work, raw enrichment results, and computed scores/tiers are represented in the DB.\
+\ls1\ilvl0
+\f0\b \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Tests
+\f1\b0  \'97 unit tests are not mandatory but are a strong positive signal, especially around retry/backoff logic, the scoring formula, and tiering boundaries.\
+\pard\pardeftab720\sa240\partightenfactor0
+\cf0 You're free to use AI tools while building this. The bar is on the output: code you can explain and defend in a follow-up conversation, not just code that compiles.\
+\pard\pardeftab720\sa240\partightenfactor0
+
+\f0\b \cf0 Time box:
+\f1\b0  2\'963 days of effort. See Section 6 for what's in vs. out of scope \'97 this exercise is intentionally meatier than a CRUD app, so scope discipline matters.\
+\pard\pardeftab720\sa280\partightenfactor0
+
+\f0\b\fs28 \cf0 3. Tech Stack\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\partightenfactor0
+\ls2\ilvl0
+\fs24 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Frontend:
+\f1\b0  React preferred (any modern framework is acceptable).\
+\ls2\ilvl0
+\f0\b \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Backend:
+\f1\b0  Python or Node.js preferred.\
+\ls2\ilvl0
+\f0\b \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Database:
+\f1\b0  PostgreSQL preferred (any SQL database is acceptable).\
+\ls2\ilvl0
+\f0\b \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 The enrichment API:
+\f1\b0  we provide this (see Section 5) \'97 do not build your own.\
+\pard\pardeftab720\sa280\partightenfactor0
+
+\f0\b\fs28 \cf0 4. Functional Flow\
+\pard\pardeftab720\sa319\partightenfactor0
+
+\fs24 \cf0 Step 1 \'97 Upload Store List\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\partightenfactor0
+\ls3\ilvl0
+\f1\b0 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 User uploads a CSV of stores (we provide a sample generator and a ready-made file \'97 see Section 5).\
+\ls3\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Perform basic header validation before accepting the file, with clear errors on failure.\
+\ls3\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Columns: store_id, store_name, address, city, state, country.\
+\pard\pardeftab720\sa319\partightenfactor0
+
+\f0\b \cf0 Step 2 \'97 Run Enrichment Job\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\partightenfactor0
+\ls4\ilvl0
+\f1\b0 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 On submit, a job is created that enriches every store by calling the provided Enrichment API (Section 5), which returns estimated_monthly_footfall, estimated_monthly_revenue, and store_size_sqft per store.\
+\ls4\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 The API is rate-limited and unreliable by design (see Section 5's failure modes) \'97 your job engine has to get all (or as many as possible) stores enriched despite that, without losing track of what succeeded, failed, or is still pending.\
+\ls4\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Expose a way to see job progress and, for any store that ultimately failed, why.\
+\pard\pardeftab720\sa240\partightenfactor0
+
+\f0\b \cf0 Example call
+\f1\b0  (full contract is in the simulator's own README):\
+Request to 
+\f3\fs26 POST /enrich
+\f1\fs24 :\
+\pard\pardeftab720\partightenfactor0
+
+\f3\fs26 \cf0 \{\
+  "store_id": "ST000001",\
+  "store_name": "Fresh Supermarket #1",\
+  "address": "71 Church Street",\
+  "city": "New Delhi",\
+  "state": "Delhi"\
+\}\
+\pard\pardeftab720\sa240\partightenfactor0
+
+\f1\fs24 \cf0 Response:\
+\pard\pardeftab720\partightenfactor0
+
+\f3\fs26 \cf0 \{\
+  "store_id": "ST000001",\
+  "estimated_monthly_footfall": 18234,\
+  "estimated_monthly_revenue": 142033.50,\
+  "store_size_sqft": 6210\
+\}\
+\pard\pardeftab720\sa319\partightenfactor0
+
+\f0\b\fs24 \cf0 Step 3 \'97 Configure Scoring & Tiering\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\partightenfactor0
+\ls5\ilvl0
+\f1\b0 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 For each of the three enrichment metrics, the user sets via the UI: a 
+\f0\b threshold
+\f1\b0  ("bar") \'97 the minimum value that counts as strong for that metric \'97 and a 
+\f0\b weight
+\f1\b0  (0\'96100%) for how much clearing that bar contributes to the score. Weights should sum to 100%.\
+\ls5\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 The user also sets the score thresholds that separate Large / Medium / Small tiers (e.g. Large \uc0\u8805  70%, Medium \u8805  40%, else Small).\
+\ls5\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Submitting this computes, for every successfully enriched store, a score and a tier:\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\partightenfactor0
+\ls5\ilvl1\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 A store's score is the sum of the weights for every metric bar it clears (so it naturally lands between 0% and 100%).\
+\ls5\ilvl1\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 The tier follows from comparing that score to the tier thresholds.\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\partightenfactor0
+\ls5\ilvl0
+\f0\b \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 This step must not call the Enrichment API again.
+\f1\b0  It should run only against data already fetched in Step 2, be fast, and be safely re-runnable any time the user changes bars, weights, or tier thresholds (e.g. to see how the tier breakdown shifts).\
+\pard\pardeftab720\sa240\partightenfactor0
+
+\f0\b \cf0 Worked example.
+\f1\b0  Say the user sets bars of footfall \uc0\u8805  15,000 / revenue \u8805  150,000 / size \u8805  8,000 sqft, weighted 50% / 30% / 20%, with tier thresholds Large \u8805  70%, Medium \u8805  40%, else Small:\
+
+\itap1\trowd \taflags0 \trgaph108\trleft-108 \trbrdrt\brdrs\brdrw20\brdrcf2 \trbrdrl\brdrs\brdrw20\brdrcf2 \trbrdrr\brdrs\brdrw20\brdrcf2 
+\clvertalc \clshdrawnil \clwWidth542\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx960
+\clvertalc \clshdrawnil \clwWidth800\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx1920
+\clvertalc \clshdrawnil \clwWidth880\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx2880
+\clvertalc \clshdrawnil \clwWidth1020\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx3840
+\clvertalc \clshdrawnil \clwWidth2000\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx4800
+\clvertalc \clshdrawnil \clwWidth2075\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx5760
+\clvertalc \clshdrawnil \clwWidth1639\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx6720
+\clvertalc \clshdrawnil \clwWidth569\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx7680
+\clvertalc \clshdrawnil \clwWidth813\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\qc\partightenfactor0
+
+\f0\b \cf0 Store\cell 
+\pard\intbl\itap1\pardeftab720\qc\partightenfactor0
+\cf0 Footfall\cell 
+\pard\intbl\itap1\pardeftab720\qc\partightenfactor0
+\cf0 Revenue\cell 
+\pard\intbl\itap1\pardeftab720\qc\partightenfactor0
+\cf0 Size (sqft)\cell 
+\pard\intbl\itap1\pardeftab720\qc\partightenfactor0
+\cf0 Clears footfall bar?\cell 
+\pard\intbl\itap1\pardeftab720\qc\partightenfactor0
+\cf0 Clears revenue bar?\cell 
+\pard\intbl\itap1\pardeftab720\qc\partightenfactor0
+\cf0 Clears size bar?\cell 
+\pard\intbl\itap1\pardeftab720\qc\partightenfactor0
+\cf0 Score\cell 
+\pard\intbl\itap1\pardeftab720\qc\partightenfactor0
+\cf0 Tier\cell \row
+
+\itap1\trowd \taflags0 \trgaph108\trleft-108 \trbrdrl\brdrs\brdrw20\brdrcf2 \trbrdrr\brdrs\brdrw20\brdrcf2 
+\clvertalc \clshdrawnil \clwWidth542\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx960
+\clvertalc \clshdrawnil \clwWidth800\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx1920
+\clvertalc \clshdrawnil \clwWidth880\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx2880
+\clvertalc \clshdrawnil \clwWidth1020\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx3840
+\clvertalc \clshdrawnil \clwWidth2000\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx4800
+\clvertalc \clshdrawnil \clwWidth2075\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx5760
+\clvertalc \clshdrawnil \clwWidth1639\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx6720
+\clvertalc \clshdrawnil \clwWidth569\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx7680
+\clvertalc \clshdrawnil \clwWidth813\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+
+\f1\b0 \cf0 A\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 40,000\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 400,000\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 18,000\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 \uc0\u10003  (+50)\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 \uc0\u10003  (+30)\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 \uc0\u10003  (+20)\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 100%\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 Large\cell \row
+
+\itap1\trowd \taflags0 \trgaph108\trleft-108 \trbrdrl\brdrs\brdrw20\brdrcf2 \trbrdrr\brdrs\brdrw20\brdrcf2 
+\clvertalc \clshdrawnil \clwWidth542\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx960
+\clvertalc \clshdrawnil \clwWidth800\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx1920
+\clvertalc \clshdrawnil \clwWidth880\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx2880
+\clvertalc \clshdrawnil \clwWidth1020\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx3840
+\clvertalc \clshdrawnil \clwWidth2000\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx4800
+\clvertalc \clshdrawnil \clwWidth2075\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx5760
+\clvertalc \clshdrawnil \clwWidth1639\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx6720
+\clvertalc \clshdrawnil \clwWidth569\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx7680
+\clvertalc \clshdrawnil \clwWidth813\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 B\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 20,000\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 100,000\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 5,000\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 \uc0\u10003  (+50)\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 \uc0\u10007  (+0)\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 \uc0\u10007  (+0)\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 50%\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 Medium\cell \row
+
+\itap1\trowd \taflags0 \trgaph108\trleft-108 \trbrdrl\brdrs\brdrw20\brdrcf2 \trbrdrb\brdrs\brdrw20\brdrcf2 \trbrdrr\brdrs\brdrw20\brdrcf2 
+\clvertalc \clshdrawnil \clwWidth542\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx960
+\clvertalc \clshdrawnil \clwWidth800\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx1920
+\clvertalc \clshdrawnil \clwWidth880\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx2880
+\clvertalc \clshdrawnil \clwWidth1020\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx3840
+\clvertalc \clshdrawnil \clwWidth2000\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx4800
+\clvertalc \clshdrawnil \clwWidth2075\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx5760
+\clvertalc \clshdrawnil \clwWidth1639\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx6720
+\clvertalc \clshdrawnil \clwWidth569\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx7680
+\clvertalc \clshdrawnil \clwWidth813\clftsWidth3 \clbrdrt\brdrs\brdrw20\brdrcf2 \clbrdrl\brdrs\brdrw20\brdrcf2 \clbrdrb\brdrs\brdrw20\brdrcf2 \clbrdrr\brdrs\brdrw20\brdrcf2 \clpadt120 \clpadl120 \clpadb120 \clpadr120 \gaph\cellx8640
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 C\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 2,000\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 20,000\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 9,000\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 \uc0\u10007  (+0)\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 \uc0\u10007  (+0)\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 \uc0\u10003  (+20)\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 20%\cell 
+\pard\intbl\itap1\pardeftab720\partightenfactor0
+\cf0 Small\cell \lastrow\row
+\pard\pardeftab720\sa240\partightenfactor0
+\cf0 That's the whole calculation \'97 no normalization, no ranges, just checking each bar and adding up the weights for the ones a store clears. Note Store C clears one bar (size) but still lands in Small \'97 clearing a bar only helps as much as its weight allows, so a single low-weight bar isn't enough to reach Medium on its own.\
+\pard\pardeftab720\sa319\partightenfactor0
+
+\f0\b \cf0 Step 4 \'97 Dashboard\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\partightenfactor0
+\ls6\ilvl0
+\f1\b0 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Job status: stores enriched / failed / pending, with failure reasons visible.\
+\ls6\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Tier breakdown: count of Large, Medium, and Small stores.\
+\ls6\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 A store list showing name, category-equivalent metrics, computed score, and tier \'97 filterable by tier.\
+\pard\pardeftab720\sa280\partightenfactor0
+
+\f0\b\fs28 \cf0 5. What We Provide\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\partightenfactor0
+\ls7\ilvl0
+\fs24 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Sample data:
+\f1\b0  a generator script plus a ready-made 5,000-row CSV of synthetic stores (attached separately).\
+\ls7\ilvl0
+\f0\b \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 The Enrichment API simulator:
+\f1\b0  a small standalone service (attached separately, with its own README) that you run locally, entirely on your own machine \'97 no internet connection, account, or API key needed. Every candidate hits the same service with the same documented behavior:\
+\pard\tx940\tx1440\pardeftab720\li1440\fi-1440\partightenfactor0
+\ls7\ilvl1\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Global rate limit: 
+\f0\b 5 requests/second
+\f1\b0 . Calls beyond that get a 429.\
+\ls7\ilvl1\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 ~10% of calls return a 500 (transient \'97 retryable).\
+\ls7\ilvl1\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 ~2% of calls take 
+\f0\b 45\'9660 seconds
+\f1\b0  to respond before eventually succeeding \'97 long enough that a well-designed system should have already decided the original attempt was dead and moved on, which means it has to handle the original attempt's answer showing up late without corrupting anything.\
+\ls7\ilvl1\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u9702 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Results for a given store_id are deterministic \'97 calling it twice returns the same metrics.\
+\pard\pardeftab720\sa240\partightenfactor0
+\cf0 Architecturally, treat it like a dependency you don't control \'97 build real retry/backoff/timeout handling rather than special-casing it just because you know it's local.\
+\pard\pardeftab720\sa280\partightenfactor0
+
+\f0\b\fs28 \cf0 6. Scope\
+\pard\pardeftab720\sa240\partightenfactor0
+
+\fs24 \cf0 In scope (core):
+\f1\b0 \
+\pard\tx220\tx720\pardeftab720\li720\fi-720\partightenfactor0
+\ls8\ilvl0\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Steps 1\'964, end to end, against a single job at a time.\
+\ls8\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 The job must tolerate: transient failures (retry, capped), a call that never comes back in reasonable time (reclaimed and retried elsewhere, without double-counting if the original call eventually does return), and a systemically broken run (stops retrying after a bounded number of attempts rather than looping forever, with a clear terminal failure state).\
+\pard\pardeftab720\sa240\partightenfactor0
+
+\f0\b \cf0 Out of scope (bonus, only if time remains):
+\f1\b0 \
+\pard\tx220\tx720\pardeftab720\li720\fi-720\partightenfactor0
+\ls9\ilvl0\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Running multiple enrichment jobs concurrently while still honoring 
+\f0\b one shared
+\f1\b0  5 req/sec limit across all of them.\
+\ls9\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Full resumability across a process restart \'97 kill the server mid-job, restart it, and the job continues without redoing completed work or losing track of in-flight work.\
+\pard\pardeftab720\sa240\partightenfactor0
+\cf0 Please don't spend core time on the bonus items at the expense of the core flow.\
+\pard\pardeftab720\sa280\partightenfactor0
+
+\f0\b\fs28 \cf0 7. Deliverables\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\partightenfactor0
+\ls10\ilvl0
+\f1\b0\fs24 \cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 A git repo (zip or link) with backend + frontend.\
+\ls10\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 README.md with: setup/run instructions (including how to run the provided simulator alongside your app), a short note on your architecture decisions, and any known limitations or shortcuts taken due to time.\
+\ls10\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Sample data files provided by us (attached separately).\
+\ls10\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Tests, if included, runnable via a single documented command.\
+}
