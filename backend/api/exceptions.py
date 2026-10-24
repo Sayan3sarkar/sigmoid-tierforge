@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from api.schemas.errors import ErrorResponse
+from api.schemas.errors import ErrorItem, ErrorResponse
 
 logger = getLogger(__name__)
 
@@ -99,28 +99,37 @@ def register_exception_handlers(app: FastAPI) -> None:
             exc.status_code,
             exc.detail,
         )
-        body = ErrorResponse(detail=exc.detail, errors=exc.errors)
+        # Our own errors (e.g. CSV problems) aren't about a single input.
+        errors = [ErrorItem(message=message) for message in exc.errors]
+        body = ErrorResponse(detail=exc.detail, errors=errors)
         return JSONResponse(status_code=exc.status_code, content=body.model_dump())
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
-        """Invalid query parameters or body: 422 in the same shape as every
-        other error, with one readable line per problem."""
+        """Invalid query parameters, path parameters or body: 422 in the same
+        shape as every other error, with one item per problem."""
         errors = [describe_validation_error(error) for error in exc.errors()]
         logger.info(
-            "%s %s -> 422: %s", request.method, request.url.path, "; ".join(errors)
+            "%s %s -> 422: %s",
+            request.method,
+            request.url.path,
+            "; ".join(f"{error.field}: {error.message}" for error in errors),
         )
         body = ErrorResponse(detail="Invalid request.", errors=errors)
         return JSONResponse(status_code=422, content=body.model_dump())
 
 
-def describe_validation_error(error: dict) -> str:
-    """One validation error as `<where>.<field>: <message>`, e.g.
-    `query.page_size: Input should be less than or equal to 200` or
-    `body.weights: weights must add up to 100, not 110`."""
-    location = ".".join(str(part) for part in error.get("loc", ()))
+def describe_validation_error(error: dict) -> ErrorItem:
+    """One Pydantic validation error as an ErrorItem, e.g.
+    `{"field": "page_size", "message": "Input should be less than or equal to
+    200"}` or `{"field": "weights", "message": "weights must add up to 100,
+    not 110"}`."""
+    location = [str(part) for part in error.get("loc", ())]
+    # The location starts with where the value came from ("body", "query" or
+    # "path"); the rest is the input's path. Nothing left: the whole body.
+    field = ".".join(location[1:]) or None
     # Our own validators' messages come prefixed by Pydantic.
     message = str(error.get("msg", "")).removeprefix("Value error, ")
-    return f"{location}: {message}" if location else message
+    return ErrorItem(field=field, message=message)

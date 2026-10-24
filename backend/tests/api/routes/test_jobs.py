@@ -180,7 +180,12 @@ class TestListJobs:
         assert response.status_code == 422
         assert response.json() == {
             "detail": "Invalid request.",
-            "errors": ["query.page_size: Input should be less than or equal to 200"],
+            "errors": [
+                {
+                    "field": "page_size",
+                    "message": "Input should be less than or equal to 200",
+                }
+            ],
         }
 
 
@@ -304,7 +309,12 @@ class TestListJobStores:
         assert response.status_code == 422
         assert response.json() == {
             "detail": "Invalid request.",
-            "errors": ["query.tier: Input should be 'large', 'medium' or 'small'"],
+            "errors": [
+                {
+                    "field": "tier",
+                    "message": "Input should be 'large', 'medium' or 'small'",
+                }
+            ],
         }
 
     def test_unknown_job_returns_404(self, client):
@@ -325,14 +335,31 @@ class TestValidationErrorFormat:
         assert response.json() == {
             "detail": "Invalid request.",
             "errors": [
-                "body.weights: weights must add up to 100, not 110",
-                "body.tiers: medium_min (70) must not be above large_min (40)",
+                {
+                    "field": "weights",
+                    "message": "weights must add up to 100, not 110",
+                },
+                {
+                    "field": "tiers",
+                    "message": "medium_min (70) must not be above large_min (40)",
+                },
             ],
         }
+
+    def test_a_nested_field_is_named_by_its_dotted_path(self, client, finished_job):
+        bad = {**CONFIG, "bars": {**CONFIG["bars"], "revenue": -1}}
+
+        response = client.post(f"/api/jobs/{finished_job}/scoring", json=bad)
+
+        [error] = response.json()["errors"]
+        assert error["field"] == "bars.revenue"
+        assert "greater than or equal to 0" in error["message"]
 
     def test_path_errors_use_the_common_error_shape(self, client):
         response = client.get("/api/jobs/abc")
 
         assert response.status_code == 422
         assert response.json()["detail"] == "Invalid request."
-        assert response.json()["errors"][0].startswith("path.job_id: ")
+        [error] = response.json()["errors"]
+        assert error["field"] == "job_id"
+        assert error["message"].startswith("Input should be a valid integer")

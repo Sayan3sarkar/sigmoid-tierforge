@@ -108,7 +108,9 @@ The body carries a bar and a weight per metric, plus the Large and Medium thresh
 | `GET /api/jobs/{id}/stores?status=&tier=` | the job's stores with status, metrics, failure reason, score and tier; filterable and paginated | `enrichment_tasks`, `stores`, `store_scores` |
 
 - **Reads never write.**
-- **One error shape:** every error, including request validation, returns `{"detail": "...", "errors": [...]}`.
+- **One error shape:** every error, including request validation, returns `{"detail": "...", "errors": [{"field": ..., "message": "..."}]}`.
+  - `field` names the input a problem is about (e.g. `weights`, `bars.revenue`, `page_size`), so a form can show each message next to its input.
+  - It's `null` when a problem isn't about one input, e.g. a CSV row.
 
 ### Key design decisions
 

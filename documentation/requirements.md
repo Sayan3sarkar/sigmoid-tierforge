@@ -104,7 +104,7 @@ Rules:
 | A job's stores with status, metrics, failure reason, score and tier; filter by status and/or tier; paginated | `GET /api/jobs/{id}/stores?status=&tier=&page=&page_size=` |
 | Why stores failed | `GET /api/jobs/{id}/stores?status=failed` |
 
-All errors return the same shape, `{"detail": "...", "errors": [...]}`, with every problem listed.
+All errors return the same shape, `{"detail": "...", "errors": [{"field": ..., "message": "..."}]}`, with every problem listed and, where it applies, the input it's about.
 
 ### Endpoint list
 
@@ -134,7 +134,7 @@ Not built yet. The backend above provides everything these screens need.
 4. **Scoring form**
    - Inputs for a bar and a weight per metric, plus the Large and Medium thresholds.
    - Prefill with the job's last-used rules.
-   - Show validation errors (weights not adding up to 100, Medium above Large).
+   - Show each validation error next to its input (weights not adding up to 100, Medium above Large).
    - Available only once enrichment has finished.
 5. **Tier breakdown**
    - Counts of Large, Medium and Small stores from the latest scoring, and when it ran.

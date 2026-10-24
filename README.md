@@ -149,6 +149,8 @@ Run them from `backend/`; every task reads `backend/.env`. `poetry run poe --hel
 
 Settings live in `backend/.env`, read by `Config` in [backend/config/settings.py](backend/config/settings.py). [backend/.env.example](backend/.env.example) documents every variable, including the enrichment rate (`ENRICHMENT_RATE_PER_SECOND`, default 4.5), timeout (10 s) and number of handlers (8).
 
+**CORS:** `ALLOWED_ORIGINS` lists the origins a browser frontend may call the API from, comma-separated (e.g. `http://localhost:5173,https://app.example.com`). The default, `*`, allows any origin; set explicit origins outside local development.
+
 **SQS:** the app never creates queues; it uses the existing queue at `SQS_ENRICHMENT_QUEUE_URL`.
 
 - **Locally,** `poe localstack_init` creates it in LocalStack (`000000000000` in the URL is LocalStack's default account ID).

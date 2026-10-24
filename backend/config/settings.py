@@ -1,8 +1,8 @@
 from typing import Annotated
 
 from fastapi import Depends
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class BaseSettingsConfig(BaseSettings):
@@ -66,12 +66,25 @@ class UploadConfig(BaseSettingsConfig, env_prefix="upload_"):
 
 class Config(BaseSettingsConfig):
     log_level: str = "INFO"
+    # Origins a browser frontend may call the API from (CORS). In the env, a
+    # comma-separated list, e.g.
+    # ALLOWED_ORIGINS=http://localhost:5173,https://app.example.com
+    # "*" allows any origin.
+    allowed_origins: Annotated[list[str], NoDecode] = ["*"]
     db: DBConfig = Field(default_factory=DBConfig)
     aws: AWSConfig = Field(default_factory=AWSConfig)
     sqs: SQSConfig = Field(default_factory=SQSConfig)
     enrichment: EnrichmentConfig = Field(default_factory=EnrichmentConfig)
     health: HealthConfig = Field(default_factory=HealthConfig)
     upload: UploadConfig = Field(default_factory=UploadConfig)
+
+    @field_validator("allowed_origins", mode="before")
+    @classmethod
+    def split_origins(cls, value: object) -> object:
+        """Read a comma-separated env value as a list of origins."""
+        if isinstance(value, str):
+            return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
 
 
 cfg = Config()

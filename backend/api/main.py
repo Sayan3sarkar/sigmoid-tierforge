@@ -4,12 +4,13 @@ from logging import getLogger
 from time import monotonic
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from api.dependencies.aws.sqs import SQSClient
 from api.dependencies.db_session import DBSession
 from api.exceptions import register_exception_handlers
 from api.routes import api_router
-from config import cfg, configure_logging
+from config import Config, cfg, configure_logging
 
 logger = getLogger(__name__)
 
@@ -28,8 +29,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("%s stopped", cfg.app_name)
 
 
-def create_app() -> FastAPI:
-    app = FastAPI(title=cfg.app_name, lifespan=lifespan)
+def create_app(config: Config = cfg) -> FastAPI:
+    app = FastAPI(title=config.app_name, lifespan=lifespan)
+    # Lets a browser frontend on another origin call the API. No credentials
+    # (cookies or auth headers) are involved, so "*" is a valid default.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=config.allowed_origins,
+        allow_methods=["GET", "POST", "PUT"],
+        allow_headers=["*"],
+    )
     register_exception_handlers(app)
     app.include_router(api_router)
     return app

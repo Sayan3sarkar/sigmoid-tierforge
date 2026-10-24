@@ -1,7 +1,7 @@
 from pydantic import ValidationError
 from pytest import mark, raises
 
-from config.settings import EnrichmentConfig
+from config.settings import Config, EnrichmentConfig
 
 
 class TestEnrichmentConfig:
@@ -46,3 +46,27 @@ class TestEnrichmentConfig:
 
         with raises(ValidationError):
             EnrichmentConfig(_env_file=None)
+
+
+class TestConfigAllowedOrigins:
+    def test_defaults_to_any_origin(self, monkeypatch):
+        monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
+
+        assert Config(_env_file=None).allowed_origins == ["*"]
+
+    @mark.parametrize(
+        "value, origins",
+        [
+            ("*", ["*"]),
+            ("http://localhost:5173", ["http://localhost:5173"]),
+            (
+                "http://localhost:5173, https://app.example.com",
+                ["http://localhost:5173", "https://app.example.com"],
+            ),
+            ("http://localhost:5173,,", ["http://localhost:5173"]),
+        ],
+    )
+    def test_reads_a_comma_separated_list(self, monkeypatch, value, origins):
+        monkeypatch.setenv("ALLOWED_ORIGINS", value)
+
+        assert Config(_env_file=None).allowed_origins == origins

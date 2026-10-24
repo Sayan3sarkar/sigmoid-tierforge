@@ -172,7 +172,7 @@ class TestUploadEndpointRejections:
         body = response.json()
         assert response.status_code == 422
         assert body["detail"].startswith("Invalid header")
-        assert "Unexpected columns: name" in body["errors"]
+        assert {"field": None, "message": "Unexpected columns: name"} in body["errors"]
         assert counts() == before
         sqs_client.send_messages.assert_not_awaited()
 
@@ -187,7 +187,10 @@ class TestUploadEndpointRejections:
 
         assert response.status_code == 422
         assert response.json()["errors"] == [
-            "Row 4: duplicate store_id ST000001 (first seen in row 2)"
+            {
+                "field": None,
+                "message": "Row 4: duplicate store_id ST000001 (first seen in row 2)",
+            }
         ]
         assert counts() == before
         sqs_client.send_messages.assert_not_awaited()

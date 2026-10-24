@@ -27,8 +27,7 @@ All of these are draft 2's job (retries with backoff, leases, a circuit breaker)
 - **Scoring keeps only the latest run.** Re-scoring replaces the previous scores and settings, so runs can't be compared. Two people scoring the same job at once: the last to commit wins, silently.
 - **Progress is polled.** There's no push (server-sent events or websockets) when a job advances.
 - **Revenue is returned as a string** (e.g. `"400000.00"`), to keep it exact; clients must convert it.
-- **No CORS configuration yet,** so a browser frontend on another origin can't call the API until it's added.
-- **Validation errors are plain strings** (`"body.weights: …"`), not structured by field.
+- **CORS allows any origin by default** (`ALLOWED_ORIGINS=*`). That's convenient locally, but should be narrowed to the frontend's origins in any shared deployment.
 - **The store list's order is fixed by its filter** (score, recent failure, or `store_id`); there's no user-chosen sort, search, or city/state filter.
 - **The SQS dead-letter queue isn't monitored.** A message that lands there leaves its task unfinished.
 
@@ -69,7 +68,6 @@ All of these are draft 2's job (retries with backoff, leases, a circuit breaker)
 
 **API and frontend:**
 - the frontend itself;
-- CORS, and field-level validation errors;
 - push updates for progress;
 - search, sorting, and city/state filters on the store list;
 - progress on the job list, and an estimated time left;
