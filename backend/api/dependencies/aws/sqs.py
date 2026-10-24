@@ -42,9 +42,9 @@ class SQSClient:
     wrap the API lifespan's `yield` in `async with SQSClient.connect(cfg):`.
 
     IAM (Terraform policy, per role):
-    - worker: sqs:GetQueueAttributes (verify_queue at startup), sqs:ReceiveMessage
-      and sqs:DeleteMessage on the enrichment queue;
-    - API (from phase 2): sqs:SendMessage on the enrichment queue.
+    - worker: sqs:GetQueueAttributes (verify_queue at startup), sqs:ReceiveMessage,
+      sqs:DeleteMessage and sqs:SendMessage (retry events) on the enrichment queue;
+    - API: sqs:SendMessage on the enrichment queue.
     """
 
     _instance: "SQSClient | None" = None
@@ -84,26 +84,44 @@ class SQSClient:
             )
         return cls._instance
 
-    async def verify_queue(self, queue_url: str) -> None:
-        """Check the queue exists and is reachable (read-only; creates nothing).
+    async def verify_queue(self, queue_url: str) -> int:
+        """Check the queue exists and is reachable (read-only; creates nothing),
+        and return its visibility timeout in seconds: how long a received
+        message stays hidden before SQS delivers it again.
 
         Used by the worker at startup. IAM: the worker's Terraform IAM policy needs
-        sqs:GetQueueAttributes, in addition to receive and delete.
+        sqs:GetQueueAttributes, in addition to receive, delete and send.
         """
         try:
-            await self._client.get_queue_attributes(
-                QueueUrl=queue_url, AttributeNames=["QueueArn"]
+            response = await self._client.get_queue_attributes(
+                QueueUrl=queue_url, AttributeNames=["QueueArn", "VisibilityTimeout"]
             )
         except (ClientError, BotoCoreError) as e:
             raise SQSQueueUnavailableError(
                 f"SQS queue {queue_url} is not reachable: {e}"
             ) from e
-        logger.info("SQS queue reachable: %s", queue_url)
+        visibility_timeout = int(
+            response.get("Attributes", {}).get("VisibilityTimeout", "30")
+        )
+        logger.info(
+            "SQS queue reachable: %s (visibility timeout %ds)",
+            queue_url,
+            visibility_timeout,
+        )
+        return visibility_timeout
 
-    async def send_message(self, queue_url: str, message: BaseModel) -> str:
-        """Send one message (the model as JSON); returns the SQS message ID."""
+    async def send_message(
+        self, queue_url: str, message: BaseModel, delay_seconds: int = 0
+    ) -> str:
+        """Send one message (the model as JSON); returns the SQS message ID.
+
+        With `delay_seconds` (0–900), SQS keeps the message hidden from consumers
+        for that long after sending.
+        """
         response = await self._client.send_message(
-            QueueUrl=queue_url, MessageBody=message.model_dump_json()
+            QueueUrl=queue_url,
+            MessageBody=message.model_dump_json(),
+            DelaySeconds=delay_seconds,
         )
         return response.get("MessageId", "")
 

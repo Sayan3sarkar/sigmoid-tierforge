@@ -55,6 +55,15 @@ class SQSQueueUnavailableError(RuntimeError):
     """
 
 
+class LeaseTooLongError(RuntimeError):
+    """ENRICHMENT_LEASE_SECONDS isn't below the queue's visibility timeout.
+
+    SQS would then redeliver a dead handler's message while its lease still
+    runs, so the task couldn't be taken over on that delivery. Raised at worker
+    startup.
+    """
+
+
 class SQSSendError(RuntimeError):
     """SQS rejected one or more messages of a batch."""
 

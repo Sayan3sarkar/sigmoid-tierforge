@@ -21,7 +21,7 @@ class TokenBucket:
     its limit. Evenly spaced at 4.5/s, any 1-second span holds at most 5 calls.
 
     One bucket per worker process. It doesn't coordinate across processes; a
-    shared limiter (e.g. Redis) is phase 6 work.
+    shared limiter (e.g. Redis) is future scope.
     """
 
     def __init__(

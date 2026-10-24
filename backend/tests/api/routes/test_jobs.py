@@ -201,10 +201,28 @@ class TestGetJob:
         assert body["tasks"] == {
             "pending": 0,
             "in_progress": 0,
+            "retrying": 0,
             "succeeded": 3,
             "failed": 1,
         }
         assert body["error"] is None
+
+    def test_counts_and_filters_tasks_waiting_for_a_retry(
+        self, client, finished_job, test_database
+    ):
+        test_database.fetch_value(
+            "UPDATE enrichment_tasks SET status = 'retrying'"
+            " WHERE job_id = $1 AND status = 'failed'",
+            finished_job,
+        )
+
+        tasks = client.get(f"/api/jobs/{finished_job}").json()["tasks"]
+        stores = client.get(
+            f"/api/jobs/{finished_job}/stores", params={"status": "retrying"}
+        ).json()
+
+        assert (tasks["retrying"], tasks["failed"]) == (1, 0)
+        assert [store["store_id"] for store in stores["items"]] == ["ST000004"]
 
     def test_unknown_job_returns_404(self, client):
         response = client.get("/api/jobs/999999")

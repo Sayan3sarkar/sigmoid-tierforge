@@ -1,8 +1,9 @@
-from datetime import UTC, datetime
+from asyncio import gather
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from pytest import fixture, mark
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 
 from api.dependencies.db_session import DBSession
 from api.models import EnrichmentTask, JobStatus, TaskStatus, Tier
@@ -129,6 +130,177 @@ class TestEnrichmentTaskRepositoryUpdateIfStatus:
 
         assert updated is False
         assert (await get_task(task_ids[0])).status == TaskStatus.PENDING
+
+
+async def set_task(task_id: int, **values) -> None:
+    """Write `values` straight onto the task, e.g. to put it in a given state."""
+    async with DBSession.context() as session:
+        await session.execute(
+            update(EnrichmentTask).where(EnrichmentTask.id == task_id).values(**values)
+        )
+        await session.commit()
+
+
+async def claim(task_id: int, job_id: int, lease_seconds: float = 25):
+    async with DBSession.context() as session:
+        lease = await EnrichmentTaskRepository(session).claim(
+            task_id, job_id, lease_seconds
+        )
+        await session.commit()
+        return lease
+
+
+async def fail_job(job_id: int) -> None:
+    async with DBSession.context() as session:
+        await JobRepository(session).update(job_id, JobUpdate(status=JobStatus.FAILED))
+
+
+class TestEnrichmentTaskRepositoryClaim:
+    @mark.parametrize("status", [TaskStatus.PENDING, TaskStatus.RETRYING])
+    async def test_claims_a_task_waiting_for_its_attempt(
+        self, job_id, task_ids, status
+    ):
+        await set_task(task_ids[0], status=status)
+
+        lease = await claim(task_ids[0], job_id, lease_seconds=25)
+
+        task = await get_task(task_ids[0])
+        assert task.status == TaskStatus.IN_PROGRESS
+        assert task.lease_expires_at == lease
+        # now() + 25 s, on the database's clock.
+        assert 24 < (lease - datetime.now(UTC)).total_seconds() <= 25
+
+    async def test_takes_over_a_task_whose_lease_expired(self, job_id, task_ids):
+        await claim(task_ids[0], job_id)
+        await set_task(task_ids[0], lease_expires_at=func.now() - timedelta(seconds=1))
+
+        lease = await claim(task_ids[0], job_id)
+
+        task = await get_task(task_ids[0])
+        assert lease is not None
+        assert (task.status, task.lease_expires_at) == (TaskStatus.IN_PROGRESS, lease)
+
+    async def test_leaves_a_task_under_a_live_lease_alone(self, job_id, task_ids):
+        first = await claim(task_ids[0], job_id)
+
+        assert await claim(task_ids[0], job_id) is None
+        assert (await get_task(task_ids[0])).lease_expires_at == first
+
+    @mark.parametrize("status", [TaskStatus.SUCCEEDED, TaskStatus.FAILED])
+    async def test_never_claims_a_finished_task(self, job_id, task_ids, status):
+        await set_task(task_ids[0], status=status)
+
+        assert await claim(task_ids[0], job_id) is None
+        assert (await get_task(task_ids[0])).status == status
+
+    async def test_never_claims_a_task_of_a_failed_job(self, job_id, task_ids):
+        await fail_job(job_id)
+
+        assert await claim(task_ids[0], job_id) is None
+        assert (await get_task(task_ids[0])).status == TaskStatus.PENDING
+
+    async def test_never_claims_a_task_of_another_job(self, job_id, task_ids):
+        assert await claim(task_ids[0], job_id + 1) is None
+
+    async def test_only_one_of_two_concurrent_claims_wins(self, job_id, task_ids):
+        leases = await gather(claim(task_ids[0], job_id), claim(task_ids[0], job_id))
+
+        [winner] = [lease for lease in leases if lease is not None]
+        assert (await get_task(task_ids[0])).lease_expires_at == winner
+
+
+class TestEnrichmentTaskRepositoryLeaseFence:
+    @staticmethod
+    async def succeed(task_id: int, job_id: int, lease) -> bool:
+        async with DBSession.context() as session:
+            updated = await EnrichmentTaskRepository(session).update_if_status(
+                task_id,
+                job_id,
+                TaskStatus.IN_PROGRESS,
+                EnrichmentTaskUpdate(status=TaskStatus.SUCCEEDED),
+                lease=lease,
+            )
+            await session.commit()
+            return updated
+
+    async def test_writes_while_the_task_still_has_the_lease(self, job_id, task_ids):
+        lease = await claim(task_ids[0], job_id)
+
+        assert await self.succeed(task_ids[0], job_id, lease) is True
+        assert (await get_task(task_ids[0])).status == TaskStatus.SUCCEEDED
+
+    async def test_a_late_result_after_a_takeover_changes_nothing(
+        self, job_id, task_ids
+    ):
+        # Handler 1 claims, stalls past its lease; handler 2 takes over.
+        first = await claim(task_ids[0], job_id)
+        await set_task(task_ids[0], lease_expires_at=func.now() - timedelta(seconds=1))
+        second = await claim(task_ids[0], job_id)
+
+        # Handler 1's result is rejected; handler 2's is written.
+        assert await self.succeed(task_ids[0], job_id, first) is False
+        assert (await get_task(task_ids[0])).status == TaskStatus.IN_PROGRESS
+        assert await self.succeed(task_ids[0], job_id, second) is True
+
+
+class TestEnrichmentTaskRepositoryIsUnfinished:
+    @staticmethod
+    async def is_unfinished(task_id: int, job_id: int) -> bool:
+        async with DBSession.context() as session:
+            return await EnrichmentTaskRepository(session).is_unfinished(
+                task_id, job_id
+            )
+
+    @mark.parametrize(
+        "status, unfinished",
+        [
+            (TaskStatus.PENDING, True),
+            (TaskStatus.IN_PROGRESS, True),
+            (TaskStatus.RETRYING, True),
+            (TaskStatus.SUCCEEDED, False),
+            (TaskStatus.FAILED, False),
+        ],
+    )
+    async def test_by_status(self, job_id, task_ids, status, unfinished):
+        await set_task(task_ids[0], status=status)
+
+        assert await self.is_unfinished(task_ids[0], job_id) is unfinished
+
+    async def test_a_task_of_a_failed_job_needs_no_more_work(self, job_id, task_ids):
+        await fail_job(job_id)
+
+        assert await self.is_unfinished(task_ids[0], job_id) is False
+
+    async def test_unknown_task_or_wrong_job(self, job_id, task_ids):
+        assert await self.is_unfinished(task_ids[0], job_id + 1) is False
+        assert await self.is_unfinished(max(task_ids) + 1, job_id) is False
+
+
+class TestEnrichmentTaskRepositoryFailUnfinished:
+    async def test_fails_every_unfinished_task_and_ends_its_lease(
+        self, job_id, task_ids
+    ):
+        # Task 0 waits for a retry, task 1 is mid-call, task 2 already succeeded.
+        await set_task(task_ids[0], status=TaskStatus.RETRYING, attempt_count=2)
+        await claim(task_ids[1], job_id)
+        await set_task(task_ids[2], status=TaskStatus.SUCCEEDED)
+        finished_at = datetime(2026, 10, 24, 12, 0, tzinfo=UTC)
+
+        async with DBSession.context() as session:
+            failed = await EnrichmentTaskRepository(session).fail_unfinished(
+                job_id, "job stopped by circuit breaker", finished_at
+            )
+            await session.commit()
+
+        tasks = [await get_task(task_id) for task_id in task_ids]
+        assert failed == 2
+        for task in tasks[:2]:
+            assert task.status == TaskStatus.FAILED
+            assert task.last_error == "job stopped by circuit breaker"
+            assert task.finished_at == finished_at
+            assert task.lease_expires_at is None
+        assert tasks[0].attempt_count == 2  # attempts made are kept
+        assert tasks[2].status == TaskStatus.SUCCEEDED
 
 
 class TestEnrichmentTaskRepositoryGet:

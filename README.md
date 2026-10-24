@@ -183,7 +183,7 @@ Run them from `backend/`; every task reads `backend/.env`. `poetry run poe --hel
 
 ## Configuration
 
-Settings live in `backend/.env`, read by `Config` in [backend/config/settings.py](backend/config/settings.py). [backend/.env.example](backend/.env.example) documents every variable, including the enrichment rate (`ENRICHMENT_RATE_PER_SECOND`, default 4.5), timeout (10 s) and number of handlers (8).
+Settings live in `backend/.env`, read by `Config` in [backend/config/settings.py](backend/config/settings.py). [backend/.env.example](backend/.env.example) documents every variable, including the enrichment rate (`ENRICHMENT_RATE_PER_SECOND`, default 4.5), timeout (10 s) and number of handlers (8), and the retry settings: calls per store (`ENRICHMENT_MAX_ATTEMPTS`, 5), backoff (2 s doubling, capped at 60 s), lease (25 s) and circuit breaker (20 failed calls in a row).
 
 **CORS:** `ALLOWED_ORIGINS` lists the origins a browser frontend may call the API from, comma-separated (e.g. `http://localhost:5173,https://app.example.com`). The default, `*`, allows any origin; set explicit origins outside local development.
 
@@ -191,5 +191,5 @@ Settings live in `backend/.env`, read by `Config` in [backend/config/settings.py
 
 - **Locally,** `poe localstack_init` creates it in LocalStack (`000000000000` in the URL is LocalStack's default account ID).
 - **In AWS,** it's provisioned with Terraform. Leave `AWS_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` unset, so the real endpoint and the IAM role are used.
-- **At startup,** the worker checks the queue is reachable and refuses to start if not. If SQS is down while the API runs, uploads return 503 and everything else keeps working.
-- **IAM:** the API needs `sqs:SendMessage`; the worker needs `sqs:GetQueueAttributes`, `sqs:ReceiveMessage` and `sqs:DeleteMessage`.
+- **At startup,** the worker checks the queue is reachable, and that `ENRICHMENT_LEASE_SECONDS` is below the queue's visibility timeout, and refuses to start if not. If SQS is down while the API runs, uploads return 503 and everything else keeps working.
+- **IAM:** the API needs `sqs:SendMessage`; the worker needs `sqs:GetQueueAttributes`, `sqs:ReceiveMessage`, `sqs:DeleteMessage` and `sqs:SendMessage` (for retry events).

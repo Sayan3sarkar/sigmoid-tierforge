@@ -34,6 +34,7 @@ class EnrichmentTask(Base):
     status: Mapped[str] = mapped_column(Text, default=TaskStatus.PENDING)
     attempt_count: Mapped[int] = mapped_column(Integer, server_default="0")
     last_error: Mapped[str | None] = mapped_column(Text)
+
     # Enrichment result, set when the task SUCCEEDED; null otherwise.
     estimated_monthly_footfall: Mapped[int | None] = mapped_column(Integer)
     estimated_monthly_revenue: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
@@ -46,6 +47,12 @@ class EnrichmentTask(Base):
     )
     # When the task reached SUCCEEDED or FAILED.
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Until when the handler that claimed the task owns it; set by the claim,
+    # cleared when the outcome is recorded, so null unless IN_PROGRESS. Once
+    # past, the handler is presumed dead and the task can be claimed again. The
+    # outcome is only written while it still holds the value the handler set.
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
         # One task per store per job; also serves "all tasks of a job" lookups.

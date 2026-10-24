@@ -78,12 +78,73 @@ class EnrichmentJobServiceTest:
         return EnrichmentJobService(jobs, tasks, scores, sqs, session, cfg)
 
 
+class TestEnrichmentJobServiceRecordCallOutcome(EnrichmentJobServiceTest):
+    """The circuit breaker; cfg's threshold is 20 failed calls in a row."""
+
+    async def test_a_success_resets_the_streak(self, service, jobs, tasks, session):
+        assert await service.record_call_outcome(7, succeeded=True) is False
+
+        jobs.reset_failed_calls.assert_awaited_once_with(7)
+        jobs.add_failed_call.assert_not_awaited()
+        session.commit.assert_awaited_once()
+
+    @mark.parametrize("streak", [1, 19, None])  # None: the job isn't RUNNING
+    async def test_a_failure_below_the_threshold_only_counts(
+        self, service, jobs, tasks, session, streak
+    ):
+        jobs.add_failed_call.return_value = streak
+
+        assert await service.record_call_outcome(7, False, "upstream error") is False
+
+        jobs.add_failed_call.assert_awaited_once_with(7)
+        jobs.update_if_status.assert_not_awaited()
+        tasks.fail_unfinished.assert_not_awaited()
+        session.commit.assert_awaited_once()
+
+    async def test_the_20th_failure_in_a_row_fails_the_job_and_its_tasks(
+        self, service, jobs, tasks, session
+    ):
+        jobs.add_failed_call.return_value = 20
+
+        tripped = await service.record_call_outcome(
+            7, succeeded=False, reason="upstream error (500)"
+        )
+
+        assert tripped is True
+        call = jobs.update_if_status.await_args
+        assert call.args == (7,)
+        assert call.kwargs["expected"] == JobStatus.RUNNING
+        changes = call.kwargs["changes"].model_dump(exclude_unset=True)
+        finished_at = changes.pop("finished_at")
+        assert changes == {
+            "status": JobStatus.FAILED,
+            "error": "circuit breaker: 20 consecutive failed calls"
+            " (last: upstream error (500))",
+        }
+        tasks.fail_unfinished.assert_awaited_once_with(
+            7, "job stopped by circuit breaker", finished_at
+        )
+        session.commit.assert_awaited_once()
+
+    async def test_only_the_handler_that_fails_the_job_fails_its_tasks(
+        self, service, jobs, tasks
+    ):
+        # Another handler tripped it first.
+        jobs.add_failed_call.return_value = 21
+        jobs.update_if_status.return_value = False
+
+        assert await service.record_call_outcome(7, False, "timeout") is False
+        tasks.fail_unfinished.assert_not_awaited()
+
+
 class TestEnrichmentJobServiceFinishIfComplete(EnrichmentJobServiceTest):
     @mark.parametrize(
         "counts",
         [
             {TaskStatus.PENDING: 1, TaskStatus.SUCCEEDED: 4},
             {TaskStatus.IN_PROGRESS: 1, TaskStatus.FAILED: 4},
+            # Waiting for a retry: not finished yet.
+            {TaskStatus.RETRYING: 1, TaskStatus.SUCCEEDED: 4},
         ],
     )
     async def test_leaves_the_job_running_while_tasks_are_unfinished(

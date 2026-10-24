@@ -12,8 +12,14 @@ class JobStatus(StrEnum):
 class TaskStatus(StrEnum):
     PENDING = auto()  # waiting for the worker
     IN_PROGRESS = auto()  # claimed by the worker
+    RETRYING = auto()  # a call failed; waiting for its delayed retry event
     SUCCEEDED = auto()  # enriched (from phase 3)
     FAILED = auto()  # enrichment call failed (from phase 3)
+
+    @classmethod
+    def unfinished(cls) -> frozenset["TaskStatus"]:
+        """Statuses of a task that hasn't reached SUCCEEDED or FAILED yet."""
+        return frozenset({cls.PENDING, cls.IN_PROGRESS, cls.RETRYING})
 
 
 class Tier(StrEnum):

@@ -25,8 +25,14 @@ class Job(Base):
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     # The settings the job's stores were last scored with (a ScoringConfig);
     # null until the job is first scored. Only the latest is kept.
     scoring_config: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+
     # When the job was last scored; null until then.
     scored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Failed enrichment calls in a row across the job's tasks; any success
+    # resets it. The circuit breaker fails the job when it reaches the threshold.
+    consecutive_failures: Mapped[int] = mapped_column(Integer, server_default="0")

@@ -1,10 +1,11 @@
 from asyncio import CancelledError, Event, sleep
+from datetime import timedelta
 from decimal import Decimal
 from logging import INFO
 from uuid import uuid4
 
 from pytest import fixture, mark, raises
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 
 from api.dependencies.aws.sqs import (
     ReceivedMessage,
@@ -14,9 +15,11 @@ from api.dependencies.db_session import DBSession
 from api.dependencies.enrichment import EnrichmentClient
 from api.exceptions import (
     EnrichmentConnectionError,
+    EnrichmentInvalidResponseError,
     EnrichmentRateLimitedError,
     EnrichmentTimeoutError,
     EnrichmentUpstreamError,
+    LeaseTooLongError,
     SQSQueueUnavailableError,
 )
 from api.models import EnrichmentTask, Job, JobStatus, TaskStatus
@@ -29,8 +32,9 @@ from api.schemas.jobs import JobCreate, JobUpdate
 from api.schemas.messages import EVENT_VERSION, EnrichmentEvent, EnrichStorePayload
 from api.schemas.stores import StoreRow
 from config import cfg
+from worker.backoff import Backoff
 from worker.rate_limiter import TokenBucket
-from worker.worker import EnrichmentWorker
+from worker.worker import EnrichmentWorker, HandledEvent, MessageAction
 
 
 class TestEnrichmentWorkerProcessMessage:
@@ -53,20 +57,68 @@ class TestEnrichmentWorkerProcessMessage:
     @fixture
     def handler(self, mocker, worker):
         return mocker.patch.object(
-            worker, "handle_event", new_callable=mocker.AsyncMock
+            worker,
+            "handle_event",
+            new_callable=mocker.AsyncMock,
+            return_value=HandledEvent(action=MessageAction.DELETE),
+        )
+
+    async def process(self, worker) -> None:
+        await worker.process_message(
+            self.make_received(self.make_event().model_dump_json())
         )
 
     async def test_valid_event_is_handled_then_deleted(
         self, worker, handler, sqs_client
     ):
-        event = self.make_event()
+        await self.process(worker)
 
-        await worker.process_message(self.make_received(event.model_dump_json()))
-
-        handler.assert_awaited_once_with(event)
+        [event] = handler.await_args.args
+        assert event.payload == EnrichStorePayload(job_id=7, task_id=42)
+        sqs_client.send_message.assert_not_awaited()
         sqs_client.delete_message.assert_awaited_once_with(
             cfg.sqs.enrichment_queue_url, "receipt-1"
         )
+
+    async def test_a_retry_sends_a_delayed_event_then_deletes(
+        self, worker, handler, sqs_client
+    ):
+        handler.return_value = HandledEvent(
+            action=MessageAction.RETRY, retry_delay_seconds=4
+        )
+
+        await self.process(worker)
+
+        call = sqs_client.send_message.await_args
+        assert call.args[0] == cfg.sqs.enrichment_queue_url
+        assert call.args[1].payload == EnrichStorePayload(job_id=7, task_id=42)
+        assert call.kwargs == {"delay_seconds": 4}
+        sqs_client.delete_message.assert_awaited_once_with(
+            cfg.sqs.enrichment_queue_url, "receipt-1"
+        )
+
+    async def test_the_message_is_kept_if_the_retry_event_cant_be_sent(
+        self, worker, handler, sqs_client
+    ):
+        # SQS redelivers it after the visibility timeout; the task is claimed then.
+        handler.return_value = HandledEvent(
+            action=MessageAction.RETRY, retry_delay_seconds=4
+        )
+        sqs_client.send_message.side_effect = RuntimeError("SQS down")
+
+        await self.process(worker)
+
+        sqs_client.delete_message.assert_not_awaited()
+
+    async def test_the_message_is_kept_while_another_handler_holds_the_task(
+        self, worker, handler, sqs_client
+    ):
+        handler.return_value = HandledEvent(action=MessageAction.KEEP)
+
+        await self.process(worker)
+
+        sqs_client.send_message.assert_not_awaited()
+        sqs_client.delete_message.assert_not_awaited()
 
     async def test_malformed_message_is_deleted_without_handling(
         self, worker, handler, sqs_client
@@ -95,15 +147,16 @@ class TestEnrichmentWorkerProcessMessage:
     ):
         handler.side_effect = RuntimeError("boom")
 
-        await worker.process_message(
-            self.make_received(self.make_event().model_dump_json())
-        )
+        await self.process(worker)
 
         sqs_client.delete_message.assert_not_awaited()
 
 
 class TestEnrichmentWorkerHandleEvent:
-    """Runs against the test database; only the enrichment API is mocked."""
+    """Runs against the test database; only the enrichment API is mocked.
+
+    The backoff's jitter is fixed at its highest, so the first retry waits 2 s.
+    """
 
     METRICS = EnrichResponse(
         store_id="ST000001",
@@ -111,6 +164,7 @@ class TestEnrichmentWorkerHandleEvent:
         estimated_monthly_revenue=Decimal("142033.50"),
         store_size_sqft=6210,
     )
+    DELETE = HandledEvent(action=MessageAction.DELETE)
 
     @fixture
     async def db(self, test_database):
@@ -167,11 +221,22 @@ class TestEnrichmentWorkerHandleEvent:
     def limiter(self, mocker):
         return mocker.AsyncMock(spec=TokenBucket)
 
+    @staticmethod
+    def make_worker(sqs_client, enrichment, limiter, **settings) -> EnrichmentWorker:
+        config = cfg.model_copy(
+            update={"enrichment": cfg.enrichment.model_copy(update=settings)}
+        )
+        return EnrichmentWorker(
+            config,
+            sqs=sqs_client,
+            enrichment=enrichment,
+            rate_limiter=limiter,
+            backoff=Backoff(config.enrichment, random=lambda: 1.0),
+        )
+
     @fixture
     def worker(self, sqs_client, enrichment, limiter):
-        return EnrichmentWorker(
-            cfg, sqs=sqs_client, enrichment=enrichment, rate_limiter=limiter
-        )
+        return self.make_worker(sqs_client, enrichment, limiter)
 
     @staticmethod
     async def get_task(task_id: int) -> EnrichmentTask:
@@ -181,9 +246,30 @@ class TestEnrichmentWorkerHandleEvent:
             )
 
     @staticmethod
-    async def job_status(job_id: int) -> str:
+    async def get_job(job_id: int) -> Job:
         async with DBSession.context() as session:
-            return await session.scalar(select(Job.status).where(Job.id == job_id))
+            return await session.scalar(select(Job).where(Job.id == job_id))
+
+    async def job_status(self, job_id: int) -> str:
+        return (await self.get_job(job_id)).status
+
+    @staticmethod
+    async def claim_elsewhere(task_id: int, job_id: int) -> None:
+        """Another handler claims the task (it's then IN_PROGRESS, leased)."""
+        async with DBSession.context() as session:
+            await EnrichmentTaskRepository(session).claim(task_id, job_id, 25)
+            await session.commit()
+
+    @staticmethod
+    async def expire_lease(task_id: int) -> None:
+        """The handler holding the task stalled or died: its lease runs out."""
+        async with DBSession.context() as session:
+            await session.execute(
+                update(EnrichmentTask)
+                .where(EnrichmentTask.id == task_id)
+                .values(lease_expires_at=func.now() - timedelta(seconds=1))
+            )
+            await session.commit()
 
     @staticmethod
     def event_for(job_id: int, task_id: int) -> EnrichmentEvent:
@@ -196,8 +282,9 @@ class TestEnrichmentWorkerHandleEvent:
     ):
         job_id, task_id = one_task
 
-        await worker.handle_event(self.event_for(job_id, task_id))
+        handled = await worker.handle_event(self.event_for(job_id, task_id))
 
+        assert handled == self.DELETE
         enrichment.enrich.assert_awaited_once_with(
             EnrichRequest(
                 store_id="ST000001",
@@ -216,30 +303,84 @@ class TestEnrichmentWorkerHandleEvent:
         assert task.attempt_count == 1
         assert task.last_error is None
         assert task.finished_at is not None
+        assert task.lease_expires_at is None
         assert await self.job_status(job_id) == JobStatus.COMPLETED
 
     @mark.parametrize(
         "error",
         [
-            EnrichmentRateLimitedError("rate limited (429)"),
             EnrichmentUpstreamError("upstream error (500)"),
             EnrichmentTimeoutError("timed out after 10s"),
             EnrichmentConnectionError("connection failed: ConnectError"),
+            EnrichmentInvalidResponseError("invalid response body: bad JSON"),
         ],
     )
-    async def test_a_failed_call_fails_the_task_with_its_reason(
+    async def test_a_failed_call_is_retried_after_the_backoff(
         self, worker, enrichment, one_task, error
     ):
         job_id, task_id = one_task
         enrichment.enrich.side_effect = error
 
-        await worker.handle_event(self.event_for(job_id, task_id))
+        handled = await worker.handle_event(self.event_for(job_id, task_id))
 
+        assert handled == HandledEvent(
+            action=MessageAction.RETRY, retry_delay_seconds=2
+        )
         task = await self.get_task(task_id)
-        assert task.status == TaskStatus.FAILED
+        assert task.status == TaskStatus.RETRYING
         assert task.last_error == str(error)
         assert task.attempt_count == 1
-        assert task.estimated_monthly_footfall is None
+        assert task.finished_at is None
+        assert task.lease_expires_at is None
+        assert await self.job_status(job_id) == JobStatus.RUNNING
+
+    async def test_a_429_is_retried_soon_without_using_an_attempt(
+        self, worker, enrichment, one_task
+    ):
+        job_id, task_id = one_task
+        enrichment.enrich.side_effect = EnrichmentRateLimitedError("rate limited (429)")
+
+        handled = await worker.handle_event(self.event_for(job_id, task_id))
+
+        assert handled == HandledEvent(
+            action=MessageAction.RETRY, retry_delay_seconds=1
+        )
+        task = await self.get_task(task_id)
+        assert (task.status, task.attempt_count) == (TaskStatus.RETRYING, 0)
+
+    async def test_a_retry_that_succeeds_completes_the_job(
+        self, worker, enrichment, one_task
+    ):
+        job_id, task_id = one_task
+        enrichment.enrich.side_effect = [
+            EnrichmentUpstreamError("upstream error (500)"),
+            self.METRICS,
+        ]
+
+        await worker.handle_event(self.event_for(job_id, task_id))
+        handled = await worker.handle_event(self.event_for(job_id, task_id))
+
+        assert handled == self.DELETE
+        task = await self.get_task(task_id)
+        assert (task.status, task.attempt_count) == (TaskStatus.SUCCEEDED, 2)
+        assert task.last_error is None
+        assert await self.job_status(job_id) == JobStatus.COMPLETED
+
+    async def test_the_backoff_grows_and_the_fifth_failure_is_final(
+        self, worker, enrichment, one_task
+    ):
+        job_id, task_id = one_task
+        enrichment.enrich.side_effect = EnrichmentUpstreamError("upstream error (500)")
+
+        handled = [
+            await worker.handle_event(self.event_for(job_id, task_id)) for _ in range(5)
+        ]
+
+        assert [h.retry_delay_seconds for h in handled[:4]] == [2, 4, 8, 16]
+        assert handled[4] == self.DELETE
+        task = await self.get_task(task_id)
+        assert (task.status, task.attempt_count) == (TaskStatus.FAILED, 5)
+        assert task.last_error == "upstream error (500)"
         assert task.finished_at is not None
         assert await self.job_status(job_id) == JobStatus.COMPLETED_WITH_FAILURES
 
@@ -252,18 +393,70 @@ class TestEnrichmentWorkerHandleEvent:
         await worker.handle_event(self.event_for(job_id, task_ids[1]))
         assert await self.job_status(job_id) == JobStatus.COMPLETED
 
-    async def test_duplicate_delivery_is_skipped_without_calling_the_api(
+    async def test_duplicate_delivery_of_a_finished_task_is_dropped(
         self, worker, enrichment, one_task, caplog
     ):
         job_id, task_id = one_task
         caplog.set_level(INFO, logger="worker")
 
         await worker.handle_event(self.event_for(job_id, task_id))
-        await worker.handle_event(self.event_for(job_id, task_id))
+        handled = await worker.handle_event(self.event_for(job_id, task_id))
 
+        assert handled == self.DELETE
         enrichment.enrich.assert_awaited_once()
         assert (await self.get_task(task_id)).status == TaskStatus.SUCCEEDED
         assert "skipped" in caplog.text
+
+    async def test_a_task_held_by_another_handler_is_left_alone(
+        self, worker, enrichment, limiter, one_task
+    ):
+        job_id, task_id = one_task
+        await self.claim_elsewhere(task_id, job_id)
+
+        handled = await worker.handle_event(self.event_for(job_id, task_id))
+
+        assert handled == HandledEvent(action=MessageAction.KEEP)
+        enrichment.enrich.assert_not_awaited()
+        limiter.acquire.assert_not_awaited()
+        assert (await self.get_task(task_id)).status == TaskStatus.IN_PROGRESS
+
+    async def test_a_task_whose_handler_died_is_taken_over(
+        self, worker, enrichment, one_task
+    ):
+        job_id, task_id = one_task
+        await self.claim_elsewhere(task_id, job_id)
+        await self.expire_lease(task_id)
+
+        handled = await worker.handle_event(self.event_for(job_id, task_id))
+
+        assert handled == self.DELETE
+        enrichment.enrich.assert_awaited_once()
+        task = await self.get_task(task_id)
+        assert (task.status, task.attempt_count) == (TaskStatus.SUCCEEDED, 1)
+        assert await self.job_status(job_id) == JobStatus.COMPLETED
+
+    async def test_a_late_result_after_a_takeover_changes_nothing(
+        self, worker, enrichment, one_task
+    ):
+        job_id, task_id = one_task
+
+        async def stall_then_answer(request):
+            # While this call hangs, its lease runs out and another handler
+            # takes the task over.
+            await self.expire_lease(task_id)
+            await self.claim_elsewhere(task_id, job_id)
+            return self.METRICS
+
+        enrichment.enrich.side_effect = stall_then_answer
+
+        handled = await worker.handle_event(self.event_for(job_id, task_id))
+
+        assert handled == self.DELETE
+        task = await self.get_task(task_id)
+        # Still the new owner's: no result saved, no attempt counted.
+        assert (task.status, task.attempt_count) == (TaskStatus.IN_PROGRESS, 0)
+        assert task.lease_expires_at is not None
+        assert task.estimated_monthly_footfall is None
 
     async def test_task_of_a_failed_job_is_skipped_without_calling_the_api(
         self, worker, enrichment, limiter, one_task
@@ -274,12 +467,68 @@ class TestEnrichmentWorkerHandleEvent:
                 job_id, JobUpdate(status=JobStatus.FAILED, error="events not sent")
             )
 
-        await worker.handle_event(self.event_for(job_id, task_id))
+        handled = await worker.handle_event(self.event_for(job_id, task_id))
 
+        assert handled == self.DELETE
         enrichment.enrich.assert_not_awaited()
         limiter.acquire.assert_not_awaited()
         assert (await self.get_task(task_id)).status == TaskStatus.PENDING
         assert await self.job_status(job_id) == JobStatus.FAILED
+
+    async def test_the_circuit_breaker_fails_the_job_and_its_stores(
+        self, sqs_client, enrichment, limiter, db
+    ):
+        worker = self.make_worker(
+            sqs_client, enrichment, limiter, circuit_breaker_threshold=3
+        )
+        job_id, task_ids = await self.running_job(4)
+        enrichment.enrich.side_effect = EnrichmentConnectionError(
+            "connection failed: ClientConnectorError"
+        )
+
+        handled = [
+            await worker.handle_event(self.event_for(job_id, task_id))
+            for task_id in task_ids[:3]
+        ]
+
+        # The 3rd failure in a row trips it: no retry is sent for that one.
+        assert [h.action for h in handled] == [
+            MessageAction.RETRY,
+            MessageAction.RETRY,
+            MessageAction.DELETE,
+        ]
+        job = await self.get_job(job_id)
+        assert job.status == JobStatus.FAILED
+        assert job.error == (
+            "circuit breaker: 3 consecutive failed calls"
+            " (last: connection failed: ClientConnectorError)"
+        )
+        tasks = [await self.get_task(task_id) for task_id in task_ids]
+        assert {task.status for task in tasks} == {TaskStatus.FAILED}
+        assert tasks[3].last_error == "job stopped by circuit breaker"
+
+        # The job's remaining events, retries included, are dropped unanswered.
+        for task_id in (task_ids[0], task_ids[3]):
+            assert await worker.handle_event(self.event_for(job_id, task_id)) == (
+                self.DELETE
+            )
+        assert enrichment.enrich.await_count == 3
+
+    async def test_a_success_ends_the_failure_streak(
+        self, sqs_client, enrichment, limiter, db
+    ):
+        worker = self.make_worker(
+            sqs_client, enrichment, limiter, circuit_breaker_threshold=3
+        )
+        job_id, task_ids = await self.running_job(4)
+        error = EnrichmentUpstreamError("upstream error (500)")
+        enrichment.enrich.side_effect = [error, error, self.METRICS, error]
+
+        for task_id in task_ids:
+            await worker.handle_event(self.event_for(job_id, task_id))
+
+        job = await self.get_job(job_id)
+        assert (job.status, job.consecutive_failures) == (JobStatus.RUNNING, 1)
 
     async def test_an_unexpected_error_is_raised_so_the_message_is_kept(
         self, worker, enrichment, one_task
@@ -360,6 +609,10 @@ class TestEnrichmentWorkerClients:
 
 
 class TestEnrichmentWorkerStartup:
+    @fixture(autouse=True)
+    def visibility_timeout(self, sqs_client):
+        sqs_client.verify_queue.return_value = 30
+
     async def test_verifies_the_queue_before_consuming(self, sqs_client):
         # Stop the consume loop on its first poll, as SIGINT would.
         sqs_client.receive_messages.side_effect = CancelledError()
@@ -381,4 +634,14 @@ class TestEnrichmentWorkerStartup:
         sqs_client.receive_messages.assert_not_awaited()
         with raises(RuntimeError, match="not connected"):
             SQSClient.get()
+        assert DBSession.engine is None
+
+    async def test_refuses_a_lease_the_queue_would_outlast(self, sqs_client):
+        # A dead handler's message would come back while its lease still runs.
+        sqs_client.verify_queue.return_value = 20
+
+        with raises(LeaseTooLongError, match=r"\(25\) must be below .* \(20s\)"):
+            await EnrichmentWorker(cfg).run()
+
+        sqs_client.receive_messages.assert_not_awaited()
         assert DBSession.engine is None

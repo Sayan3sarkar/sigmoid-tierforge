@@ -1,25 +1,35 @@
-import { Alert, Card, Group, Progress, SimpleGrid, Stack, Text } from '@mantine/core'
+import {
+  Alert,
+  Card,
+  Group,
+  Progress,
+  SimpleGrid,
+  Stack,
+  Text,
+} from "@mantine/core";
 
-import type { Job } from '@/api/types'
-import { StatusBadge } from '@/components/StatusBadge'
-import { Format } from '@/utils/format'
-import { JobStatusRules, STATUS_COLOURS } from '@/utils/status'
+import type { Job } from "@/api/types";
+import { StatusBadge } from "@/components/StatusBadge";
+import { Format } from "@/utils/format";
+import { JobStatusRules, STATUS_COLOURS } from "@/utils/status";
 
-import classes from './JobProgress.module.css'
+import classes from "./JobProgress.module.css";
 
 interface Props {
-  job: Job
+  job: Job;
 }
 
 /** A job's status, a progress bar, and its task counts and timings. */
 export function JobProgress({ job }: Props) {
-  const { tasks, total_tasks: total } = job
-  const finished = JobStatusRules.finishedCount(tasks)
-  const percent = (count: number) => (total > 0 ? (count / total) * 100 : 0)
+  const { tasks, total_tasks: total } = job;
+  const finished = JobStatusRules.finishedCount(tasks);
+  const percent = (count: number) => (total > 0 ? (count / total) * 100 : 0);
   const durationSeconds =
     job.started_at && job.finished_at
-      ? (new Date(job.finished_at).getTime() - new Date(job.started_at).getTime()) / 1000
-      : null
+      ? (new Date(job.finished_at).getTime() -
+          new Date(job.started_at).getTime()) /
+        1000
+      : null;
 
   return (
     <Card withBorder padding="lg">
@@ -30,13 +40,24 @@ export function JobProgress({ job }: Props) {
             <StatusBadge status={job.status} />
           </Group>
           <Text size="sm" c="dimmed">
-            {Format.integer(finished)} of {Format.integer(total)} stores finished
+            {Format.integer(finished)} of {Format.integer(total)} stores
+            finished
           </Text>
         </Group>
 
         <Progress.Root size="xl" aria-label="Enrichment progress">
-          <Progress.Section value={percent(tasks.succeeded)} color={STATUS_COLOURS.succeeded} />
-          <Progress.Section value={percent(tasks.failed)} color={STATUS_COLOURS.failed} />
+          <Progress.Section
+            value={percent(tasks.succeeded)}
+            color={STATUS_COLOURS.succeeded}
+          />
+          <Progress.Section
+            value={percent(tasks.failed)}
+            color={STATUS_COLOURS.failed}
+          />
+          <Progress.Section
+            value={percent(tasks.retrying)}
+            color={STATUS_COLOURS.retrying}
+          />
           <Progress.Section
             value={percent(tasks.in_progress)}
             color={STATUS_COLOURS.in_progress}
@@ -44,11 +65,32 @@ export function JobProgress({ job }: Props) {
           />
         </Progress.Root>
 
-        <SimpleGrid cols={{ base: 2, sm: 4 }}>
-          <Count label="Succeeded" value={tasks.succeeded} colour={STATUS_COLOURS.succeeded} />
-          <Count label="Failed" value={tasks.failed} colour={STATUS_COLOURS.failed} />
-          <Count label="In progress" value={tasks.in_progress} colour={STATUS_COLOURS.in_progress} />
-          <Count label="Pending" value={tasks.pending} colour={STATUS_COLOURS.pending} />
+        <SimpleGrid cols={{ base: 2, sm: 5 }}>
+          <Count
+            label="Succeeded"
+            value={tasks.succeeded}
+            colour={STATUS_COLOURS.succeeded}
+          />
+          <Count
+            label="Failed"
+            value={tasks.failed}
+            colour={STATUS_COLOURS.failed}
+          />
+          <Count
+            label="In progress"
+            value={tasks.in_progress}
+            colour={STATUS_COLOURS.in_progress}
+          />
+          <Count
+            label="Retrying"
+            value={tasks.retrying}
+            colour={STATUS_COLOURS.retrying}
+          />
+          <Count
+            label="Pending"
+            value={tasks.pending}
+            colour={STATUS_COLOURS.pending}
+          />
         </SimpleGrid>
 
         <Group gap="xl" className={classes.timings}>
@@ -66,10 +108,18 @@ export function JobProgress({ job }: Props) {
         )}
       </Stack>
     </Card>
-  )
+  );
 }
 
-function Count({ label, value, colour }: { label: string; value: number; colour: string }) {
+function Count({
+  label,
+  value,
+  colour,
+}: {
+  label: string;
+  value: number;
+  colour: string;
+}) {
   return (
     <div>
       <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
@@ -79,5 +129,5 @@ function Count({ label, value, colour }: { label: string; value: number; colour:
         {Format.integer(value)}
       </Text>
     </div>
-  )
+  );
 }

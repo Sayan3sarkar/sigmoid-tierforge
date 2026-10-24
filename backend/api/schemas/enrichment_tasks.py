@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from enum import StrEnum, auto
 
 from pydantic import BaseModel, ConfigDict
 
@@ -30,6 +31,7 @@ class EnrichmentTaskUpdate(BaseModel):
     estimated_monthly_revenue: Decimal | None = None
     store_size_sqft: int | None = None
     finished_at: datetime | None = None
+    lease_expires_at: datetime | None = None
 
 
 class ClaimedTask(BaseModel):
@@ -40,9 +42,32 @@ class ClaimedTask(BaseModel):
 
     task_id: int
     job_id: int
-    # Calls made before this one; the outcome is saved as attempt_count + 1.
+    # Attempts recorded before this one (429s aren't counted); this call's
+    # outcome is saved as attempt_count + 1, unless it's a 429.
     attempt_count: int
+    # The claim's lease: the outcome is only written while the task still has it.
+    lease_expires_at: datetime
     request: EnrichRequest
+
+
+class ClaimStatus(StrEnum):
+    """What came of trying to claim a task, and so what to do with its message."""
+
+    CLAIMED = auto()  # this handler owns the task now: enrich the store
+    # Someone else holds it (IN_PROGRESS under a live lease): keep the message,
+    # so it comes back and the task is recovered if that handler dies.
+    BUSY = auto()
+    # Nothing left to do (SUCCEEDED, FAILED, or its job FAILED): drop the message.
+    DONE = auto()
+
+
+class ClaimResult(BaseModel):
+    """The outcome of a claim; `task` is set only when CLAIMED."""
+
+    model_config = ConfigDict(frozen=True)
+
+    status: ClaimStatus
+    task: ClaimedTask | None = None
 
 
 class TaskMetrics(BaseModel):

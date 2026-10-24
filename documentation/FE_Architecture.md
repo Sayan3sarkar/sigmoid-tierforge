@@ -89,11 +89,11 @@ frontend/
     │   ├── ApiErrorAlert/    shows an ApiError's detail and its list of problems
     │   ├── StatusBadge/      job or task status as a coloured badge
     │   ├── TierBadge/
-    │   ├── JobProgress/      progress bar and counts per status
+    │   ├── JobProgress/      progress bar and counts per task status, incl. retrying
     │   ├── CsvDropzone/      drag-and-drop or pick a .csv
     │   ├── ScoringForm/      bars, weights, thresholds; client- and server-side errors
     │   ├── TierSummary/      Large / Medium / Small counts, when scored
-    │   ├── StoreTable/       store rows with metrics, score, tier, reason
+    │   ├── StoreTable/       store rows with status, attempts, metrics, score, tier, last error
     │   ├── StoreFilters/     status and tier filters
     │   └── TablePagination/
     │       (each folder: Component.tsx, Component.module.css when it has styles, index.ts)
@@ -107,7 +107,7 @@ frontend/
     ├── utils/               small classes with static methods
     │   ├── format.ts        Format: numbers, revenue (string → number), dates, durations
     │   ├── scoring.ts       ScoringRules: the API's checks, in the browser; default settings
-    │   ├── status.ts        JobStatusRules: running / scorable; status and tier colours
+    │   ├── status.ts        JobStatusRules: running / scorable; task statuses; status and tier colours
     │   └── searchParams.ts  SearchParams: page and filters in the URL
     │
     ├── styles/
@@ -201,6 +201,8 @@ All query keys are built in `queryKeys.ts` (`["jobs", page]`, `["job", id]`, `["
 
 They can be reused anywhere and tested without the API.
 
+**Task statuses** (`TASK_STATUSES` in `utils/status.ts`) are `pending`, `in_progress`, `retrying`, `succeeded` and `failed`. Each has one colour in `STATUS_COLOURS` (`retrying` is orange), used by the badge, the progress bar and the counts. A store's row shows its `attempt_count` and `last_error`: for a `retrying` store, the error of its last failed call; for a `failed` one, why it was given up on.
+
 **The scoring form** uses `@mantine/form`:
 - it **checks the same rules as the API in the browser** (weights add up to 100, Medium ≤ Large, values ≥ 0), so most mistakes never reach the server;
 - it **shows server errors next to their inputs:** it awaits the submit, and if the API rejects it, puts `ApiError.fieldErrors()` (`weights`, `bars.revenue`, …) on the matching inputs. Other problems appear in an alert;
@@ -250,7 +252,7 @@ They can be reused anywhere and tested without the API.
   | `api/` | each endpoint's URL, query params and body; `ApiError` from 404, 422 (field errors) and network failures |
   | `hooks/` | polling stops when the job finishes; the summary is refreshed then; scoring refreshes summary and stores, and exposes a 409 |
   | `ScoringForm` | submits; blocks weights ≠ 100 and Medium > Large without calling the API; shows the API's field errors on their inputs |
-  | Pages (full app, real routes) | job page: progress, stores, status filter (URL and request), scoring end to end, no scoring while running, 404; upload: success opens the job, rejection lists every problem; jobs list, empty state, `/` redirect |
+  | Pages (full app, real routes) | job page: progress, stores, status filter (URL and request), retrying stores with their attempts and last error, scoring end to end, no scoring while running, 404; upload: success opens the job, rejection lists every problem; jobs list, empty state, `/` redirect |
 
 - **Not covered:** end-to-end tests in a real browser against the real backend.
 

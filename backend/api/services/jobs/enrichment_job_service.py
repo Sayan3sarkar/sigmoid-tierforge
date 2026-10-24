@@ -35,8 +35,9 @@ logger = getLogger(__name__)
 
 class EnrichmentJobService:
     """Enrichment jobs: creates one for an upload, queues one event per store,
-    finishes it once all its tasks are done, and reads jobs back (the job list,
-    a job's progress and summary, and its stores).
+    stops it if its calls keep failing (the circuit breaker), finishes it once
+    all its tasks are done, and reads jobs back (the job list, a job's progress
+    and summary, and its stores).
 
     The API uses it through FastAPI dependencies; the worker builds it itself.
     The read methods never write or commit.
@@ -58,6 +59,7 @@ class EnrichmentJobService:
         self._session = session
         self._queue_url = config.sqs.enrichment_queue_url
         self._send_concurrency = config.sqs.send_concurrency
+        self._breaker_threshold = config.enrichment.circuit_breaker_threshold
 
     async def create_job(
         self, upload_id: UUID, store_ids: Sequence[int]
@@ -123,13 +125,58 @@ class EnrichmentJobService:
         )
         return JobStatus.RUNNING
 
+    async def record_call_outcome(
+        self, job_id: int, succeeded: bool, reason: str = ""
+    ) -> bool:
+        """Feed one enrichment call's outcome to the job's circuit breaker, and
+        commit.
+
+        The breaker counts the job's failed calls in a row, across all its
+        stores; any success resets the count. The API's normal failures are
+        random, so a long streak means the API itself is broken: when the count
+        reaches `circuit_breaker_threshold`, the job is FAILED with an error
+        naming `reason` (the last failure), and so is every unfinished task of
+        it. Their remaining events are then dropped by the claim, and results
+        of calls still in flight are rejected.
+
+        Returns True if this call tripped the breaker. Only one handler can:
+        the job's status change is guarded on RUNNING.
+        """
+        if succeeded:
+            await self._jobs_repository.reset_failed_calls(job_id)
+            await self._session.commit()
+            return False
+
+        streak = await self._jobs_repository.add_failed_call(job_id)
+        if streak is None or streak < self._breaker_threshold:
+            await self._session.commit()
+            return False
+
+        finished_at = datetime.now(UTC)
+        tripped = await self._jobs_repository.update_if_status(
+            job_id,
+            expected=JobStatus.RUNNING,
+            changes=JobUpdate(
+                status=JobStatus.FAILED,
+                error=f"circuit breaker: {streak} consecutive failed calls"
+                f" (last: {reason})",
+                finished_at=finished_at,
+            ),
+        )
+        if tripped:
+            await self._enrichment_tasks_repository.fail_unfinished(
+                job_id, "job stopped by circuit breaker", finished_at
+            )
+        await self._session.commit()
+        return tripped
+
     async def finish_if_complete(self, job_id: int) -> JobStatus | None:
         """If every task of a RUNNING job has finished, mark the job COMPLETED
         (all tasks SUCCEEDED) or COMPLETED_WITH_FAILURES (some FAILED), and commit.
 
         Called after each task finishes. Returns the job's new status, or None
-        if tasks are still unfinished, or the job isn't RUNNING (already
-        finished, or FAILED).
+        if tasks are still unfinished (PENDING, IN_PROGRESS, or RETRYING: waiting
+        for a retry), or the job isn't RUNNING (already finished, or FAILED).
 
         Safe when two workers finish the last tasks at the same time: each
         commits its task before counting, so whichever counts last sees every
@@ -137,7 +184,7 @@ class EnrichmentJobService:
         job.
         """
         counts = await self._enrichment_tasks_repository.count_by_status(job_id)
-        if counts.get(TaskStatus.PENDING, 0) or counts.get(TaskStatus.IN_PROGRESS, 0):
+        if any(counts.get(status, 0) for status in TaskStatus.unfinished()):
             return None
 
         status = (

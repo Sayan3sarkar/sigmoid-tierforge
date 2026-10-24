@@ -16,8 +16,8 @@ class MetricBars(BaseModel):
 
 
 class MetricWeights(BaseModel):
-    """Points a store earns for meeting each bar. Each is 0–100 and the three add
-    up to exactly 100, so a score is always 0–100."""
+    """Points a store earns for meeting each bar. Each is 0-100 and the three add
+    up to exactly 100, so a score is always 0-100."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 

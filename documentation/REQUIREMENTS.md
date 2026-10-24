@@ -55,17 +55,17 @@ Because of the global 5 calls/s limit, 5,000 stores take at least ~17 minutes to
 - Enrich every store of the upload in the background, one call per store attempt.
 - Stay under the API's 5 calls/s global limit.
 - Give up on a call after 10 s.
-- Track every store's state (`pending`, `in_progress`, `succeeded`, `failed`), its metrics if it succeeded, and its reason if it failed.
+- Track every store's state (`pending`, `in_progress`, `retrying`, `succeeded`, `failed`), its number of attempts, its metrics if it succeeded, and its last error if a call failed.
 - Never lose track of a store, and never count one twice, even if a message is delivered twice.
-- When every store has finished, the job is finished: `completed` (all succeeded) or `completed_with_failures` (some failed). If the job can't be started, it's `failed` with the reason.
+- When every store has finished, the job is finished: `completed` (all succeeded) or `completed_with_failures` (some failed). If the job can't be started, or its run is broken (see "Broken runs" below), it's `failed` with the reason.
 
-**Draft 1 (implemented):** one attempt per store. Any 429, 500, timeout or connection error fails that store with its reason.
+**Draft 1 (implemented, superseded by draft 2):** one attempt per store. Any 429, 500, timeout or connection error fails that store with its reason.
 
-**Draft 2 (to do):**
-- **Retries:** retry transient failures (500s, timeouts, connection errors) with exponential backoff and jitter, up to a cap on attempts, then fail the store with the reason.
-- **429s:** a 429 is retried after a short wait without using up the store's attempts.
-- **Stuck work:** work that never comes back (a hung call, a dead worker) is reclaimed and retried. A late answer from the original attempt must not corrupt anything or be double-counted.
-- **Broken runs:** a run that fails across the board (e.g. the API is down) stops after a bounded number of failures, with a clear terminal `failed` state, instead of looping forever.
+**Draft 2 (implemented):**
+- **Retries:** retry failed calls (500s, timeouts, connection errors, invalid responses) with exponential backoff and jitter: 2 s doubling, capped at 60 s, times a random 50–100%. A store gets at most **5 calls in total** (`ENRICHMENT_MAX_ATTEMPTS`), then it's `failed` with the last reason. While it waits for a retry, it's `retrying`.
+- **429s:** a 429 is retried after ~1 s without using up the store's attempts.
+- **Stuck work:** work that never comes back (a dead or stalled worker) is reclaimed and retried: a claim holds a 25 s lease, and once it has expired, the task's redelivered message takes it over. A late answer from the original attempt is ignored, so nothing is corrupted or double-counted. A hung call is cut off by the 10 s timeout and counts as a failed attempt.
+- **Broken runs:** a run that fails across the board (e.g. the API is down) stops after **20 failed calls in a row** across the job's stores (`ENRICHMENT_CIRCUIT_BREAKER_THRESHOLD`; any success resets the count). The job is then `failed` with the reason, and so is every store that hadn't finished.
 
 ### 3. Scoring and tiering
 
@@ -99,9 +99,9 @@ Rules:
 | Need | Endpoint |
 | --- | --- |
 | List jobs, newest first | `GET /api/jobs` |
-| A job's status and progress (pending / in progress / succeeded / failed counts) | `GET /api/jobs/{id}` |
+| A job's status and progress (pending / in progress / retrying / succeeded / failed counts) | `GET /api/jobs/{id}` |
 | Progress plus the latest scoring: rules used, when, and Large / Medium / Small counts | `GET /api/jobs/{id}/summary` |
-| A job's stores with status, metrics, failure reason, score and tier; filter by status and/or tier; paginated | `GET /api/jobs/{id}/stores?status=&tier=&page=&page_size=` |
+| A job's stores with status, attempts, metrics, last error, score and tier; filter by status and/or tier; paginated | `GET /api/jobs/{id}/stores?status=&tier=&page=&page_size=` |
 | Why stores failed | `GET /api/jobs/{id}/stores?status=failed` |
 
 All errors return the same shape, `{"detail": "...", "errors": [{"field": ..., "message": "..."}]}`, with every problem listed and, where it applies, the input it's about.
@@ -127,7 +127,7 @@ Built as a React single-page app; see [FE_Architecture.md](FE_Architecture.md).
    - On failure, show every validation problem (missing column, bad row, file too large).
    - On success, go to the new job's page.
 2. **Job progress**
-   - Show the job's status and counts of succeeded, failed and pending stores, updating while the job runs (polling).
+   - Show the job's status and counts of succeeded, failed, retrying, in-progress and pending stores, updating while the job runs (polling).
    - Show when the job finished, or why it failed.
 3. **Failures**
    - List the stores that failed, with the reason and the number of attempts.
@@ -139,7 +139,7 @@ Built as a React single-page app; see [FE_Architecture.md](FE_Architecture.md).
 5. **Tier breakdown**
    - Counts of Large, Medium and Small stores from the latest scoring, and when it ran.
 6. **Store list**
-   - A table of stores with name, location, the three metrics, score and tier.
+   - A table of stores with name, location, status, attempts, the three metrics, score, tier and last error.
    - Filterable by tier (and by status), with pagination.
 
 ## Out of scope
@@ -149,7 +149,7 @@ Built as a React single-page app; see [FE_Architecture.md](FE_Architecture.md).
 - Building our own enrichment API, or changing the provided one.
 - **Bonus items, only if time allows:**
   - several jobs running at once while sharing one 5 calls/s limit;
-  - resuming a job after a restart without redoing finished stores.
+  - resuming a job after a restart without redoing finished stores. _Covered by draft 2:_ finished stores stay finished, waiting events stay on the queue, and tasks a stopped worker had claimed are taken over once their lease expires.
 
 ## Testing
 

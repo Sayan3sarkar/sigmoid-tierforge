@@ -1,7 +1,7 @@
-from typing import Annotated
+from typing import Annotated, Self
 
 from fastapi import Depends
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -48,12 +48,43 @@ class SQSConfig(BaseSettingsConfig, env_prefix="sqs_"):
 
 class EnrichmentConfig(BaseSettingsConfig, env_prefix="enrichment_"):
     base_url: str = "http://localhost:8000"
+
     # Whole call, from connecting to the last byte of the response.
     timeout_seconds: float = Field(default=10.0, gt=0)
+
     # The API allows 5 calls/s across all callers; stay below it.
     rate_per_second: float = Field(default=4.5, gt=0)
+
     # Calls in flight at once in one worker; the rate limit still caps calls/s.
     concurrency: int = Field(default=8, ge=1)
+
+    # Calls per store in total, the first one included; then the store FAILS.
+    max_attempts: int = Field(default=5, ge=1)
+
+    # Delay before retry n: base × 2^(n − 1), capped at the max, times a random
+    # 50–100%. SQS can hold a message back for at most 900 s.
+    backoff_base_seconds: float = Field(default=2.0, gt=0)
+    backoff_max_seconds: float = Field(default=60.0, gt=0, le=900)
+
+    # Delay before retrying a 429, which doesn't use up an attempt.
+    rate_limited_delay_seconds: float = Field(default=1.0, gt=0, le=900)
+
+    # How long a claimed task belongs to its handler; once past, the handler is
+    # presumed dead and the task can be claimed again. Must outlast a call (the
+    # timeout) and be below the queue's visibility timeout.
+    lease_seconds: float = Field(default=25.0, gt=0)
+
+    # Failed calls in a row, across one job's stores, that fail the job.
+    circuit_breaker_threshold: int = Field(default=20, ge=1)
+
+    @model_validator(mode="after")
+    def check_timings(self) -> Self:
+        """Reject settings that contradict each other."""
+        if self.backoff_base_seconds > self.backoff_max_seconds:
+            raise ValueError("backoff_base_seconds must not exceed backoff_max_seconds")
+        if self.lease_seconds <= self.timeout_seconds:
+            raise ValueError("lease_seconds must be longer than timeout_seconds")
+        return self
 
 
 class HealthConfig(BaseSettingsConfig, env_prefix="health_"):
@@ -66,6 +97,7 @@ class UploadConfig(BaseSettingsConfig, env_prefix="upload_"):
 
 class Config(BaseSettingsConfig):
     log_level: str = "INFO"
+
     # Origins a browser frontend may call the API from (CORS). In the env, a
     # comma-separated list, e.g.
     # ALLOWED_ORIGINS=http://localhost:5173,https://app.example.com

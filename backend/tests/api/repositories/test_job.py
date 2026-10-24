@@ -1,6 +1,7 @@
+from asyncio import gather
 from datetime import UTC, datetime
 
-from pytest import raises
+from pytest import fixture, raises
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import DBAPIError
 
@@ -83,6 +84,52 @@ class TestJobRepositoryUpdateIfStatus:
             )
 
         assert (first, second) == (True, False)
+
+
+class TestJobRepositoryFailedCallStreak:
+    @fixture
+    async def running(self, job_id) -> int:
+        async with DBSession.context() as session:
+            await JobRepository(session).update(
+                job_id, JobUpdate(status=JobStatus.RUNNING)
+            )
+        return job_id
+
+    @staticmethod
+    async def add_failed_call(job_id: int) -> int | None:
+        async with DBSession.context() as session:
+            return await JobRepository(session).add_failed_call(job_id)
+
+    @staticmethod
+    async def reset(job_id: int) -> None:
+        async with DBSession.context() as session:
+            await JobRepository(session).reset_failed_calls(job_id)
+
+    async def test_a_new_job_has_no_streak(self, job_id):
+        assert (await get_job(job_id)).consecutive_failures == 0
+
+    async def test_counts_failed_calls_in_a_row(self, running):
+        assert [await self.add_failed_call(running) for _ in range(3)] == [1, 2, 3]
+        assert (await get_job(running)).consecutive_failures == 3
+
+    async def test_a_reset_ends_the_streak(self, running):
+        await self.add_failed_call(running)
+        await self.add_failed_call(running)
+
+        await self.reset(running)
+
+        assert (await get_job(running)).consecutive_failures == 0
+        assert await self.add_failed_call(running) == 1
+
+    async def test_concurrent_failures_are_all_counted(self, running):
+        await gather(*(self.add_failed_call(running) for _ in range(5)))
+
+        assert (await get_job(running)).consecutive_failures == 5
+
+    async def test_a_job_that_is_not_running_is_not_counted(self, job_id):
+        # Still PENDING here; the same holds once it's FAILED or finished.
+        assert await self.add_failed_call(job_id) is None
+        assert (await get_job(job_id)).consecutive_failures == 0
 
 
 class TestJobRepositoryGet:

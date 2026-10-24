@@ -9,6 +9,7 @@ const SCORABLE_JOB_STATUSES: readonly JobStatus[] = [
 export const TASK_STATUSES: readonly TaskStatus[] = [
   "pending",
   "in_progress",
+  "retrying",
   "succeeded",
   "failed",
 ];
@@ -36,6 +37,7 @@ export const STATUS_COLOURS: Record<JobStatus | TaskStatus, string> = {
   pending: "gray",
   running: "blue",
   in_progress: "blue",
+  retrying: "orange",
   succeeded: "teal",
   completed: "teal",
   completed_with_failures: "yellow",

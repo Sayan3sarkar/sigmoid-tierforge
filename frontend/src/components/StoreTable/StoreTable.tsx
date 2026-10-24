@@ -1,30 +1,31 @@
-import { Skeleton, Table, Text } from '@mantine/core'
+import { Skeleton, Table, Text } from "@mantine/core";
 
-import type { JobStoreItem } from '@/api/types'
-import { StatusBadge } from '@/components/StatusBadge'
-import { TierBadge } from '@/components/TierBadge'
-import { Format } from '@/utils/format'
+import type { JobStoreItem } from "@/api/types";
+import { StatusBadge } from "@/components/StatusBadge";
+import { TierBadge } from "@/components/TierBadge";
+import { Format } from "@/utils/format";
 
-import classes from './StoreTable.module.css'
+import classes from "./StoreTable.module.css";
 
 interface Props {
-  items: JobStoreItem[]
-  loading?: boolean
+  items: JobStoreItem[];
+  loading?: boolean;
 }
 
 const COLUMNS = [
-  'Store',
-  'Location',
-  'Status',
-  'Footfall',
-  'Revenue',
-  'Size (sqft)',
-  'Score',
-  'Tier',
-  'Failure reason',
-]
+  "Store",
+  "Location",
+  "Status",
+  "Attempts",
+  "Footfall",
+  "Revenue",
+  "Size (sqft)",
+  "Score",
+  "Tier",
+  "Last error",
+];
 
-/** A page of a job's stores: status, metrics, score, tier and failure reason. */
+/** A page of a job's stores: status, attempts, metrics, score, tier and last error. */
 export function StoreTable({ items, loading = false }: Props) {
   return (
     <Table.ScrollContainer minWidth={900}>
@@ -68,6 +69,9 @@ export function StoreTable({ items, loading = false }: Props) {
                   <StatusBadge status={store.status} />
                 </Table.Td>
                 <Table.Td className={classes.number}>
+                  {store.attempt_count}
+                </Table.Td>
+                <Table.Td className={classes.number}>
                   {Format.integer(store.estimated_monthly_footfall)}
                 </Table.Td>
                 <Table.Td className={classes.number}>
@@ -76,11 +80,15 @@ export function StoreTable({ items, loading = false }: Props) {
                 <Table.Td className={classes.number}>
                   {Format.integer(store.store_size_sqft)}
                 </Table.Td>
-                <Table.Td className={classes.number}>{store.score ?? '—'}</Table.Td>
-                <Table.Td>{store.tier ? <TierBadge tier={store.tier} /> : '—'}</Table.Td>
+                <Table.Td className={classes.number}>
+                  {store.score ?? "—"}
+                </Table.Td>
                 <Table.Td>
-                  <Text size="sm" c={store.last_error ? 'red' : 'dimmed'}>
-                    {store.last_error ?? '—'}
+                  {store.tier ? <TierBadge tier={store.tier} /> : "—"}
+                </Table.Td>
+                <Table.Td>
+                  <Text size="sm" c={store.last_error ? "red" : "dimmed"}>
+                    {store.last_error ?? "—"}
                   </Text>
                 </Table.Td>
               </Table.Tr>
@@ -89,7 +97,7 @@ export function StoreTable({ items, loading = false }: Props) {
         </Table.Tbody>
       </Table>
     </Table.ScrollContainer>
-  )
+  );
 }
 
 function LoadingRows() {
@@ -101,5 +109,5 @@ function LoadingRows() {
         </Table.Td>
       ))}
     </Table.Tr>
-  ))
+  ));
 }

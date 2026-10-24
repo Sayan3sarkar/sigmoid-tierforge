@@ -42,11 +42,14 @@ class TestSQSClientVerifyQueue:
     def sqs(self, boto_client):
         return SQSClient(boto_client)
 
-    async def test_reads_the_queue_attributes(self, sqs, boto_client):
-        await sqs.verify_queue(QUEUE_URL)
+    async def test_returns_the_queues_visibility_timeout(self, sqs, boto_client):
+        boto_client.get_queue_attributes.return_value = {
+            "Attributes": {"QueueArn": "arn:aws:sqs:…", "VisibilityTimeout": "45"}
+        }
 
+        assert await sqs.verify_queue(QUEUE_URL) == 45
         boto_client.get_queue_attributes.assert_awaited_once_with(
-            QueueUrl=QUEUE_URL, AttributeNames=["QueueArn"]
+            QueueUrl=QUEUE_URL, AttributeNames=["QueueArn", "VisibilityTimeout"]
         )
 
     async def test_raises_clear_error_when_queue_is_missing(self, sqs, boto_client):
@@ -57,6 +60,35 @@ class TestSQSClientVerifyQueue:
 
         with raises(SQSQueueUnavailableError, match=f"SQS queue {QUEUE_URL}"):
             await sqs.verify_queue(QUEUE_URL)
+
+
+class TestSQSClientSendMessage:
+    @fixture
+    def boto_client(self, mocker):
+        client = mocker.AsyncMock()
+        client.send_message.return_value = {"MessageId": "msg-1"}
+        return client
+
+    @fixture
+    def sqs(self, boto_client):
+        return SQSClient(boto_client)
+
+    @staticmethod
+    def event() -> EnrichmentEvent:
+        return EnrichmentEvent(payload=EnrichStorePayload(job_id=7, task_id=42))
+
+    async def test_sends_the_model_as_json(self, sqs, boto_client):
+        event = self.event()
+
+        assert await sqs.send_message(QUEUE_URL, event) == "msg-1"
+        boto_client.send_message.assert_awaited_once_with(
+            QueueUrl=QUEUE_URL, MessageBody=event.model_dump_json(), DelaySeconds=0
+        )
+
+    async def test_can_hold_the_message_back(self, sqs, boto_client):
+        await sqs.send_message(QUEUE_URL, self.event(), delay_seconds=8)
+
+        assert boto_client.send_message.await_args.kwargs["DelaySeconds"] == 8
 
 
 class TestSQSClientReceiveMessages:

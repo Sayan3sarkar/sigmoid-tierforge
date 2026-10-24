@@ -39,6 +39,7 @@ class TaskCounts(BaseModel):
 
     pending: int = 0
     in_progress: int = 0
+    retrying: int = 0
     succeeded: int = 0
     failed: int = 0
 

@@ -1,8 +1,9 @@
 from collections.abc import Sequence
+from datetime import datetime, timedelta
 from typing import Annotated
 
 from fastapi import Depends
-from sqlalchemy import Select, func, insert, select, update
+from sqlalchemy import Exists, Select, func, insert, or_, select, update
 
 from api.models import EnrichmentTask, Job, JobStatus, Store, StoreScore, TaskStatus
 from api.repositories.base import BaseRepository
@@ -153,18 +154,82 @@ class EnrichmentTaskRepository(BaseRepository):
         )
         return {TaskStatus(status): count for status, count in result}
 
+    async def claim(
+        self, task_id: int, job_id: int, lease_seconds: float
+    ) -> datetime | None:
+        """Claim one task for a handler: set it IN_PROGRESS with a lease ending
+        `lease_seconds` from now, if and only if all of these hold:
+
+        - the task has `task_id` and belongs to `job_id`;
+        - it's PENDING or RETRYING, or IN_PROGRESS with an expired lease (the
+          handler that claimed it is presumed dead, so it's taken over);
+        - its job's status isn't FAILED.
+
+        One UPDATE statement, so of two handlers claiming the same task only one
+        can succeed: the second waits for the first's row lock, then re-checks
+        the conditions against the claimed row, which no longer matches. The
+        lease is computed and compared with the database's clock (now()), so
+        clocks on worker machines don't matter. Does not commit.
+
+        Returns the new lease, which the handler must present to record the
+        outcome (see update_if_status), or None, changing nothing, if any check
+        fails.
+        """
+        claimable = or_(
+            EnrichmentTask.status.in_((TaskStatus.PENDING, TaskStatus.RETRYING)),
+            (EnrichmentTask.status == TaskStatus.IN_PROGRESS)
+            & (EnrichmentTask.lease_expires_at < func.now()),
+        )
+        result = await self.session.execute(
+            update(EnrichmentTask)
+            .where(
+                EnrichmentTask.id == task_id,
+                EnrichmentTask.job_id == job_id,
+                claimable,
+                self._job_not_failed(),
+            )
+            .values(
+                status=TaskStatus.IN_PROGRESS,
+                lease_expires_at=func.now() + timedelta(seconds=lease_seconds),
+            )
+            .returning(EnrichmentTask.lease_expires_at)
+        )
+        return result.scalar_one_or_none()
+
+    async def is_unfinished(self, task_id: int, job_id: int) -> bool:
+        """True if the task exists, belongs to `job_id`, hasn't SUCCEEDED or
+        FAILED yet, and its job hasn't FAILED: i.e. it still needs work. Read only.
+        """
+        return bool(
+            await self.session.scalar(
+                select(
+                    select(EnrichmentTask.id)
+                    .where(
+                        EnrichmentTask.id == task_id,
+                        EnrichmentTask.job_id == job_id,
+                        EnrichmentTask.status.in_(TaskStatus.unfinished()),
+                        self._job_not_failed(),
+                    )
+                    .exists()
+                )
+            )
+        )
+
     async def update_if_status(
         self,
         task_id: int,
         job_id: int,
         expected: TaskStatus,
         changes: EnrichmentTaskUpdate,
+        lease: datetime | None = None,
     ) -> bool:
         """Update one task, writing only the fields set on `changes`, if and only
         if all of these hold:
 
         - the task has `task_id` and belongs to `job_id`;
         - its status is still `expected`;
+        - with `lease`: its lease is still exactly `lease`, i.e. nobody has taken
+          the task over since this handler claimed it;
         - its job's status isn't FAILED.
 
         The checks and the write are one UPDATE statement, so two workers handling
@@ -172,28 +237,60 @@ class EnrichmentTaskRepository(BaseRepository):
         it afterwards would let both see `expected`. Does not commit.
 
         Returns True if the task was updated. Returns False, changing nothing, if
-        any check fails (e.g. a duplicate SQS delivery).
+        any check fails (e.g. a duplicate SQS delivery, or a late result from a
+        handler whose task was taken over).
         """
-        # The task's job still exists and hasn't FAILED.
-        job_not_failed = (
-            select(Job.id)
-            .where(Job.id == EnrichmentTask.job_id, Job.status != JobStatus.FAILED)
-            .exists()
-        )
+        conditions = [
+            EnrichmentTask.id == task_id,
+            EnrichmentTask.job_id == job_id,
+            EnrichmentTask.status == expected,
+            self._job_not_failed(),
+        ]
+        if lease is not None:
+            conditions.append(EnrichmentTask.lease_expires_at == lease)
         # Every check is in the WHERE clause; RETURNING tells us whether the row
         # matched.
         result = await self.session.execute(
             update(EnrichmentTask)
-            .where(
-                EnrichmentTask.id == task_id,
-                EnrichmentTask.job_id == job_id,
-                EnrichmentTask.status == expected,
-                job_not_failed,
-            )
+            .where(*conditions)
             .values(**changes.model_dump(exclude_unset=True))
             .returning(EnrichmentTask.id)
         )
         return result.scalar_one_or_none() is not None
+
+    async def fail_unfinished(
+        self, job_id: int, reason: str, finished_at: datetime
+    ) -> int:
+        """Mark every unfinished task of the job (PENDING, IN_PROGRESS or
+        RETRYING) FAILED with `reason`, in one UPDATE, ending any lease. Tasks
+        that already SUCCEEDED or FAILED are untouched. Does not commit.
+
+        Returns the number of tasks failed.
+        """
+        result = await self.session.execute(
+            update(EnrichmentTask)
+            .where(
+                EnrichmentTask.job_id == job_id,
+                EnrichmentTask.status.in_(TaskStatus.unfinished()),
+            )
+            .values(
+                status=TaskStatus.FAILED,
+                last_error=reason,
+                finished_at=finished_at,
+                lease_expires_at=None,
+            )
+            .returning(EnrichmentTask.id)
+        )
+        return len(result.all())
+
+    @staticmethod
+    def _job_not_failed() -> Exists:
+        """The task's job still exists and hasn't FAILED."""
+        return (
+            select(Job.id)
+            .where(Job.id == EnrichmentTask.job_id, Job.status != JobStatus.FAILED)
+            .exists()
+        )
 
 
 EnrichmentTaskRepositoryDep = Annotated[EnrichmentTaskRepository, Depends()]

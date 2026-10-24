@@ -59,6 +59,36 @@ class JobRepository(BaseRepository):
             .values(**changes.model_dump(exclude_unset=True))
         )
 
+    async def add_failed_call(self, job_id: int) -> int | None:
+        """Add one to a RUNNING job's streak of failed calls in a row
+        (`consecutive_failures`), in one UPDATE, so concurrent handlers can't
+        lose a count. Does not commit; the row stays locked until the caller's
+        transaction ends.
+
+        Returns the new streak, or None, changing nothing, if no job has
+        `job_id` or it isn't RUNNING.
+        """
+        result = await self.session.execute(
+            update(Job)
+            .where(Job.id == job_id, Job.status == JobStatus.RUNNING)
+            .values(consecutive_failures=Job.consecutive_failures + 1)
+            .returning(Job.consecutive_failures)
+        )
+        return result.scalar_one_or_none()
+
+    async def reset_failed_calls(self, job_id: int) -> None:
+        """End a job's streak of failed calls: set `consecutive_failures` to 0.
+
+        Only writes when the streak isn't 0 already, so the usual success, with
+        no failures before it, neither writes nor locks the job's row. Does not
+        commit.
+        """
+        await self.session.execute(
+            update(Job)
+            .where(Job.id == job_id, Job.consecutive_failures > 0)
+            .values(consecutive_failures=0)
+        )
+
     async def update_if_status(
         self, job_id: int, expected: JobStatus, changes: JobUpdate
     ) -> bool:
