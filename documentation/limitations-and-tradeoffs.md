@@ -22,10 +22,15 @@ All of these are draft 2's job (retries with backoff, leases, a circuit breaker)
 
 ### Other limitations
 
-- **The upload waits until every event is sent** (~1 s per 5,000 stores). Much larger files would slow the request down; see future scope.
+- **Uploads go through the API, synchronously.**
+  - The whole file (up to 10 MB) is read into the API's memory, then validated, saved and queued within the request, which waits until every event is sent (~1.7 s for 5,000 stores).
+  - Much larger files would hold API memory and a request open for a long time, and would hit proxy and timeout limits.
+  - See "Uploads at scale" under future scope.
+- **The source CSV isn't kept.** Only the parsed rows are stored in `stores`, so the original file can't be downloaded, audited, or re-processed (for example after a validation rule changes).
 - **Scoring needs a finished job.** The tiers can't be previewed while enrichment runs.
 - **Scoring keeps only the latest run.** Re-scoring replaces the previous scores and settings, so runs can't be compared. Two people scoring the same job at once: the last to commit wins, silently.
-- **Progress is polled.** There's no push (server-sent events or websockets) when a job advances.
+- **Progress is polled.** The frontend refreshes a running job every 3 s; there's no push (server-sent events or websockets).
+- **Frontend:** light theme only; no end-to-end browser tests (unit, component and page tests mock the API); the production JavaScript is one ~670 kB chunk (~210 kB gzipped), not code-split by page.
 - **Revenue is returned as a string** (e.g. `"400000.00"`), to keep it exact; clients must convert it.
 - **CORS allows any origin by default** (`ALLOWED_ORIGINS=*`). That's convenient locally, but should be narrowed to the frontend's origins in any shared deployment.
 - **The store list's order is fixed by its filter** (score, recent failure, or `store_id`); there's no user-chosen sort, search, or city/state filter.
@@ -37,6 +42,7 @@ All of these are draft 2's job (retries with backoff, leases, a circuit breaker)
 | --- | --- | --- | --- |
 | Unit of work on SQS | one event per store | one event per job (`{job_id}`), or chunks of N stores | Per-store events give per-store delivery, redelivery and dead-lettering from SQS, and let several workers share a job. A job event means fewer messages and a faster upload, but the worker must then schedule stores itself, and one worker owns a whole job. |
 | Work queue | SQS, with state in Postgres | Postgres as the queue (`SELECT … FOR UPDATE SKIP LOCKED`) | SQS already delivers and redelivers work; using Postgres as well would give two sources of "what to run next". |
+| Upload path | multipart upload to the API, validated in the request | presigned S3 upload, validated by a worker on the S3 event | Errors come back in the same response and no extra infrastructure is needed; enough for files up to 10 MB. The S3 path scales to large files and keeps the source CSV, but validation becomes asynchronous. |
 | Sending events | in the upload request, after commit | return first and send in the background (or a transactional outbox) | Simple, and a 201 guarantees every store is queued, at the cost of ~1 s per 5,000 stores in the request. |
 | Rate | 4.5 calls/s, capacity 1 | 5/s, or bursts | Evenly spaced calls with a margin avoid 429s against the API's fixed windows; ~4.8/s is worth trying, since the live run had no 429s at 4.5. |
 | Rate limiter | in-process | shared (e.g. Redis) | Correct for one worker and no extra infrastructure; several workers would need a shared one. |
@@ -60,6 +66,23 @@ All of these are draft 2's job (retries with backoff, leases, a circuit breaker)
 - a fenced result write, so a late answer is ignored;
 - a circuit breaker that stops a broken run with a `failed` job.
 
+**Uploads at scale: S3 with presigned URLs:**
+1. The client asks the API for an upload slot: `POST /api/uploads` returns an `upload_id` and a short-lived **presigned S3 URL**.
+2. The client uploads the CSV **straight to S3**, so the file never passes through the API, whatever its size.
+3. An **S3 event notification** (object created) goes to an SQS queue.
+4. A **validation worker** consumes it:
+   - streams the file from S3 and validates the header and rows;
+   - on success, saves the stores, creates the job and its tasks, and sends the enrichment events, as the upload does today;
+   - on failure, records the problems on the upload.
+5. The client follows the upload's state (`validating`, then `rejected` with every problem, or `accepted` with its `job_id`) with `GET /api/uploads/{upload_id}`.
+
+What it brings and costs:
+- **No size limit on the API,** and no file held in API memory.
+- **The source CSV is kept in S3,** for download, audits and re-processing (a lifecycle rule can expire old files).
+- **Validation can retry** if it fails part-way.
+- **But validation becomes asynchronous:** the client polls for errors instead of getting them in the upload's response.
+- **More moving parts:** the bucket and its CORS policy, the event notification, a second queue and worker, and a table for upload state. LocalStack supports all of them locally.
+
 **Throughput and scale:**
 - **Reuse results** for stores already enriched recently (the API is deterministic per `store_id`). Re-uploading a known file would then take seconds instead of minutes.
 - A **shared rate limiter** (e.g. Redis), so several workers can run safely.
@@ -67,7 +90,6 @@ All of these are draft 2's job (retries with backoff, leases, a circuit breaker)
 - Tuning the rate towards ~4.8 calls/s.
 
 **API and frontend:**
-- the frontend itself;
 - push updates for progress;
 - search, sorting, and city/state filters on the store list;
 - progress on the job list, and an estimated time left;
@@ -78,7 +100,7 @@ All of these are draft 2's job (retries with backoff, leases, a circuit breaker)
 - metrics and alerts (calls/s, error rates, queue depth, dead-letter queue);
 - structured logs;
 - containerising the API and worker;
-- Terraform for the queue and IAM roles.
+- Terraform for the queue and IAM roles (and the S3 bucket, if uploads move to S3).
 
 ## Intentionally left out
 

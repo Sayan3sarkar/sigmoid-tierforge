@@ -1,9 +1,10 @@
 # Architecture
 
 High-level design of the TierForge backend.
-- What it must do: [requirements.md](requirements.md).
+- What it must do: [REQUIREMENTS.md](REQUIREMENTS.md).
 - Every table, column and index: [datastores.md](datastores.md).
 - Known limitations and trade-offs: [limitations-and-tradeoffs.md](limitations-and-tradeoffs.md).
+- The frontend that calls this API: [FE_Architecture.md](FE_Architecture.md).
 
 1. [Draft 1: enrichment without retries](#1-draft-1-enrichment-without-retries) (implemented)
 2. [Draft 2: retry with backoff](#2-draft-2-retry-with-backoff) (not implemented yet)

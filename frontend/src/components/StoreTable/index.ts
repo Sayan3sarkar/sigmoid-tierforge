@@ -1,0 +1,1 @@
+export { StoreTable } from './StoreTable'

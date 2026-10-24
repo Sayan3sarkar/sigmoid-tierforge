@@ -10,3 +10,13 @@
 
 # OS
 .DS_Store
+
+# Frontend (Node)
+**/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+*.local
+npm-debug.log*
+
+# Editors
+.idea

@@ -2,7 +2,7 @@
 
 TierForge scores and tiers a large list of stores. A user uploads a CSV of stores. A background job then enriches each store with three metrics (monthly footfall, monthly revenue, store size) from a slow, rate-limited and unreliable third-party API: the provided simulator, at most 5 calls/s. Once enrichment finishes, the user sets a bar and a weight per metric plus tier thresholds, and TierForge scores every enriched store and sorts it into **Large**, **Medium** or **Small**. Scoring uses only the saved metrics, so it's fast and can be re-run any time.
 
-The backend is a FastAPI API and a separate SQS worker, sharing a PostgreSQL database.
+The backend is a FastAPI API and a separate SQS worker, sharing a PostgreSQL database. The frontend is a React single-page app over the API.
 
 ## Documentation
 
@@ -10,6 +10,7 @@ The backend is a FastAPI API and a separate SQS worker, sharing a PostgreSQL dat
 | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
 | [Requirements](documentation/REQUIREMENTS.md)                            | What the system must do: backend and frontend                                     |
 | [Architecture](documentation/architecture.md)                            | High-level design: components, flows, key decisions                               |
+| [Frontend architecture](documentation/FE_Architecture.md)                | Frontend stack, layers, directory structure, testing                              |
 | [Data stores](documentation/datastores.md)                               | Every table, column, constraint and index                                         |
 | [Limitations and trade-offs](documentation/limitations-and-tradeoffs.md) | Known limitations, design trade-offs, future scope, what's intentionally left out |
 
@@ -24,6 +25,8 @@ sigmoid-tierforge/
 │   ├── migrations/           Alembic migrations
 │   ├── scripts/              database and LocalStack setup scripts
 │   └── tests/                pytest suite (settings in tests/.test.env)
+├── frontend/                 React + TypeScript single-page app (npm project)
+│   └── src/                  api/, hooks/, components/, pages/, utils/, test/
 ├── documentation/            requirements, architecture, data stores, limitations
 ├── enrichment_simulator.zip  the provided enrichment API (unzip; don't modify)
 └── stores_5000.csv           sample upload with 5,000 stores
@@ -38,6 +41,7 @@ sigmoid-tierforge/
 | Python                               | 3.12 or 3.13                             |
 | [Poetry](https://python-poetry.org/) | 2.x                                      |
 | Docker                               | any recent                               |
+| Node.js / npm                        | 22.x / 10.x                              |
 | AWS CLI                              | v2 (used by the LocalStack setup script) |
 
 ### 1. Start Postgres and LocalStack
@@ -64,7 +68,7 @@ unzip enrichment_simulator.zip -x "__MACOSX/*"
 
 This creates `enrichment_simulator/` next to `backend/`. It's git-ignored and must not be modified. Its dependencies are already in the backend environment.
 
-### 3. Install and configure
+### 3. Install and configure the backend
 
 ```bash
 cd backend
@@ -86,7 +90,7 @@ poetry run poe db_upgrade        # run all Alembic migrations
 
 `poetry run poe setup` runs all three in one go.
 
-### 5. Run
+### 5. Run the backend
 
 Run each process in its own terminal, from `backend/`:
 
@@ -98,7 +102,19 @@ poetry run poe worker      # SQS worker
 
 Running `eval $(poetry env activate)` once per shell lets you drop the `poetry run` prefix.
 
-### 6. Try it
+### 6. Run the frontend
+
+In another terminal, from `frontend/`:
+
+```bash
+npm install
+cp .env.example .env    # VITE_API_BASE_URL=http://localhost:8001
+npm run dev             # http://localhost:5173
+```
+
+Open http://localhost:5173, upload `stores_5000.csv`, follow the job's progress, and score it once enrichment has finished.
+
+### 7. Or try the API directly
 
 ```bash
 # Upload the sample file: returns the job_id
@@ -119,15 +135,35 @@ curl "http://localhost:8001/api/jobs/1/stores?tier=large"
 curl "http://localhost:8001/api/jobs/1/stores?status=failed"
 ```
 
-### 7. Run the tests
+### 8. Run the tests
 
-From `backend/`, with Postgres running:
+**Backend,** from `backend/`, with Postgres running:
 
 ```bash
 poetry run poe test
 ```
 
 Each run creates its own temporary database (`tierforge_test_<random>`), migrates it, and drops it at the end. SQS and the enrichment API are mocked, so LocalStack and the simulator don't need to be running.
+
+**Frontend,** from `frontend/`:
+
+```bash
+npm test
+```
+
+Every API call is mocked (Mock Service Worker), so no backend needs to be running.
+
+## Frontend scripts
+
+Run them from `frontend/`.
+
+| Script                               | What it does                                                               |
+| ------------------------------------ | -------------------------------------------------------------------------- |
+| `npm run dev`                        | Dev server on http://localhost:5173                                        |
+| `npm run build` / `npm run preview`  | Production build in `dist/` / serve that build locally                     |
+| `npm test` / `npm run test:watch`    | Run the tests once / in watch mode                                         |
+| `npm run typecheck` / `npm run lint` | TypeScript check / oxlint                                                  |
+| `npm run api:types`                  | Regenerate `src/api/schema.d.ts` from the running backend's OpenAPI schema |
 
 ## Poe tasks
 

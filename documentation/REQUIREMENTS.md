@@ -120,7 +120,7 @@ All errors return the same shape, `{"detail": "...", "errors": [{"field": ..., "
 
 ## Frontend requirements
 
-Not built yet. The backend above provides everything these screens need.
+Built as a React single-page app; see [FE_Architecture.md](FE_Architecture.md).
 
 1. **Upload screen**
    - Pick and upload a CSV.

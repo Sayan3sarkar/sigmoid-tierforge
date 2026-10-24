@@ -1,0 +1,4 @@
+/* The few global rules; component styles live next to each component. */
+body {
+  background-color: var(--mantine-color-gray-0);
+}
